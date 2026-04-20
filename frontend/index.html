@@ -27,7 +27,7 @@
         // Функция для загрузки меток с твоего сервера
         async function loadReports() {
             try {
-                const response = await fetch('http://37.230.169.95:8000/reports');
+                const response = await fetch('/api/reports');
                 const reports = await response.json();
 
                 reports.forEach(report => {
