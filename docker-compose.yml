@@ -23,8 +23,7 @@ services:
     environment:
       DATABASE_URL: postgresql://user_admin:secret_password@db:5432/antisnow_db
 
-
-frontend:
+  frontend:
     image: nginx:stable-alpine
     restart: always
     ports:
@@ -35,6 +34,6 @@ frontend:
     depends_on:
       - backend
 
-      
+
 volumes:
   postgres_data:
