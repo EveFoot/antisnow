@@ -20,9 +20,7 @@
         // Центрируем карту на Сыктывкаре (61.66, 50.82)
         const map = L.map('map').setView([61.6688, 50.8212], 13);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
+        
 
         // Функция для загрузки меток с твоего сервера
         async function loadReports() {
