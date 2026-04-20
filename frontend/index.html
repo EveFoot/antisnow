@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Антиснег: Карта отчетов</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map { height: 600px; width: 100%; }
+        body { font-family: sans-serif; margin: 20px; }
+        .status-badge { padding: 5px; border-radius: 3px; background: #ff4444; color: white; }
+    </style>
+</head>
+<body>
+    <h1>Система «Антиснег» — Оперативная карта</h1>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Центрируем карту на Сыктывкаре (61.66, 50.82)
+        const map = L.map('map').setView([61.6688, 50.8212], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Функция для загрузки меток с твоего сервера
+        async function loadReports() {
+            try {
+                const response = await fetch('http://37.230.169.95:8000/reports');
+                const reports = await response.json();
+
+                reports.forEach(report => {
+                    L.marker([report.lat, report.lon])
+                        .addTo(map)
+                        .bindPopup(`
+                            <b>Адрес:</b> ${report.address}<br>
+                            <b>Статус:</b> <span class="status-badge">${report.status}</span>
+                        `);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки данных:', error);
+            }
+        }
+
+        loadReports();
+    </script>
+</body>
+</html>
