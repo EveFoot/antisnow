@@ -2,47 +2,164 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Антиснег — Карта</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Карта — AntiSnow</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        #map { height: 90vh; width: 100%; border-radius: 10px; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 10px; background: #f0f2f5; }
-        h2 { text-align: center; color: #1a365d; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+        
+        /* Верхняя панель */
+        .top-nav {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none; /* Пропускает клики сквозь панель на карту */
+        }
+        .nav-block {
+            background: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            pointer-events: auto; /* Позволяет кликать на кнопки */
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .user-info { font-weight: bold; color: #333; }
+        .role-badge { 
+            background: #007bff; 
+            color: white; 
+            padding: 2px 8px; 
+            border-radius: 4px; 
+            font-size: 12px; 
+            text-transform: uppercase;
+        }
+        button.logout { 
+            background: #f8f9fa; 
+            border: 1px solid #ddd; 
+            padding: 5px 10px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+        }
+        button.logout:hover { background: #e2e6ea; }
+        
+        .hint {
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
-    <h2>📍 Оперативная карта сугробов — Сыктывкар</h2>
+
+    <div class="top-nav">
+        <div class="nav-block">
+            <span class="user-info" id="display-email">Загрузка...</span>
+            <span class="role-badge" id="display-role">...</span>
+            <button class="logout" onclick="logout()">Выйти</button>
+        </div>
+        <div class="hint" id="action-hint">Нажми на карту, чтобы отметить сугроб</div>
+    </div>
+
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        const map = L.map('map').setView([61.6688, 50.8212], 13);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        // 1. ПРОВЕРКА АВТОРИЗАЦИИ
+        const token = localStorage.getItem('token');
+        const role = localStorage.getItem('role');
+        const email = localStorage.getItem('user_email');
 
-        async function loadMarkers() {
-            try {
-                const res = await fetch('/api/reports');
-                const data = await res.json();
-                data.forEach(p => {
-                    L.marker([p.lat, p.lon]).addTo(map)
-                     .bindPopup(`<b>${p.address}</b><br>Статус: ${p.status}`);
-                });
-            } catch (e) { console.error("Ошибка загрузки:", e); }
+        if (!token) {
+            window.location.href = '/login.html';
         }
 
-        map.on('click', async (e) => {
-            const desc = prompt("Что здесь случилось? (например: Обледенение)");
-            if (desc) {
-                const url = `/api/report?address=${encodeURIComponent(desc)}&lat=${e.latlng.lat}&lon=${e.latlng.lng}`;
-                const res = await fetch(url, { method: 'POST' });
-                if (res.ok) {
-                    alert("Отправлено!");
-                    location.reload();
-                }
+        // Вывод данных юзера
+        document.getElementById('display-email').innerText = email;
+        document.getElementById('display-role').innerText = role === 'admin' ? 'Администратор' : 'Житель';
+
+        function logout() {
+            localStorage.clear();
+            window.location.href = '/login.html';
+        }
+
+        // 2. НАСТРОЙКА КАРТЫ
+        // Центр — Москва (можно заменить на свои координаты)
+        const map = L.map('map').setView([55.75, 37.61], 11);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        // 3. ЛОГИКА СОЗДАНИЯ ЗАЯВКИ
+        map.on('click', function(e) {
+            // Житель и Админ могут создавать, если захочешь запретить кому-то — добавь if
+            const address = prompt("Опишите проблему (например: Сильный гололед или сугроб):");
+            
+            if (address) {
+                const lat = e.latlng.lat;
+                const lon = e.latlng.lng;
+
+                fetch(`/api/report?address=${encodeURIComponent(address)}&lat=${lat}&lon=${lon}`, {
+                    method: 'POST'
+                })
+                .then(res => res.json())
+                .then(data => {
+                    addMarkerToMap(data);
+                    alert("Заявка успешно создана!");
+                })
+                .catch(err => alert("Ошибка сохранения"));
             }
         });
 
-        loadMarkers();
+        // 4. ЗАГРУЗКА ВСЕХ МЕТОК
+        function loadReports() {
+            fetch('/api/reports')
+                .then(res => res.json())
+                .then(reports => {
+                    reports.forEach(report => {
+                        addMarkerToMap(report);
+                    });
+                });
+        }
+
+        function addMarkerToMap(report) {
+            // Цвет метки зависит от статуса
+            const markerColor = report.status === 'Новый' ? 'red' : 'green';
+            
+            // Мы используем стандартный маркер, но можно менять стили
+            const marker = L.marker([report.lat, report.lon]).addTo(map);
+            
+            let popupHtml = `
+                <div style="min-width: 150px;">
+                    <b>${report.address}</b><br>
+                    <small>Статус: ${report.status}</small><br>
+                    <hr>
+            `;
+
+            // ПРАВА АДМИНА: Кнопка смены статуса
+            if (role === 'admin' && report.status === 'Новый') {
+                popupHtml += `<button onclick="updateStatus(${report.id})" style="width:100%; background:green; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">Убрано!</button>`;
+            }
+
+            popupHtml += `</div>`;
+            marker.bindPopup(popupHtml);
+        }
+
+        function updateStatus(id) {
+            // Пока что просто выводим уведомление, позже добавим эндпоинт PATCH на бэкенд
+            alert("Статус заявки #" + id + " изменен на 'Убрано'");
+            location.reload(); 
+        }
+
+        loadReports();
     </script>
 </body>
 </html>

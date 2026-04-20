@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход — AntiSnow</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            background: #e9ecef; 
+            margin: 0; 
+        }
+        .form-card { 
+            background: white; 
+            padding: 2.5rem; 
+            border-radius: 12px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
+            width: 100%;
+            max-width: 350px; 
+        }
+        h2 { text-align: center; color: #333; margin-bottom: 1.5rem; }
+        input { 
+            width: 100%; 
+            padding: 12px; 
+            margin-bottom: 1rem; 
+            border: 1px solid #ddd; 
+            border-radius: 6px; 
+            box-sizing: border-box; 
+        }
+        button { 
+            width: 100%; 
+            padding: 12px; 
+            background: #28a745; 
+            color: white; 
+            border: none; 
+            border-radius: 6px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            transition: background 0.3s;
+        }
+        button:hover { background: #218838; }
+        .error-msg { color: #dc3545; font-size: 14px; text-align: center; margin-bottom: 1rem; min-height: 20px; }
+        .footer-links { text-align: center; margin-top: 1rem; font-size: 14px; }
+        .footer-links a { color: #007bff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="form-card">
+        <h2>AntiSnow</h2>
+        <div id="message" class="error-msg"></div>
+        <form id="loginForm">
+            <input type="email" id="username" placeholder="Ваш Email" required>
+            <input type="password" id="password" placeholder="Пароль" required>
+            <button type="submit">Войти на карту</button>
+        </form>
+        <div class="footer-links">
+            Нет аккаунта? <a href="register.html">Создать профиль</a>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const msgDiv = document.getElementById('message');
+            msgDiv.innerText = "";
+
+            const formData = new FormData();
+            formData.append('username', document.getElementById('username').value);
+            formData.append('password', document.getElementById('password').value);
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Сохраняем данные сессии
+                    localStorage.setItem('token', data.access_token);
+                    localStorage.setItem('role', data.role);
+                    localStorage.setItem('user_email', document.getElementById('username').value);
+                    window.location.href = '/'; 
+                } else {
+                    msgDiv.innerText = "Ошибка: неверный логин или пароль";
+                }
+            } catch (err) {
+                msgDiv.innerText = "Сервер недоступен";
+            }
+        };
+    </script>
+</body>
+</html>
