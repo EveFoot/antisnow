@@ -1,49 +1,48 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <title>Антиснег: Карта отчетов</title>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <title>Антиснег — Карта</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        #map { height: 600px; width: 100%; }
-        body { font-family: sans-serif; margin: 20px; }
-        .status-badge { padding: 5px; border-radius: 3px; background: #ff4444; color: white; }
+        #map { height: 90vh; width: 100%; border-radius: 10px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 10px; background: #f0f2f5; }
+        h2 { text-align: center; color: #1a365d; }
     </style>
 </head>
 <body>
-    <h1>Система «Антиснег» — Оперативная карта</h1>
+    <h2>📍 Оперативная карта сугробов — Сыктывкар</h2>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Центрируем карту на Сыктывкаре (61.66, 50.82)
         const map = L.map('map').setView([61.6688, 50.8212], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
-
-        // Функция для загрузки меток с твоего сервера
-        async function loadReports() {
+        async function loadMarkers() {
             try {
-                const response = await fetch('/api/reports');
-                const reports = await response.json();
-
-                reports.forEach(report => {
-                    L.marker([report.lat, report.lon])
-                        .addTo(map)
-                        .bindPopup(`
-                            <b>Адрес:</b> ${report.address}<br>
-                            <b>Статус:</b> <span class="status-badge">${report.status}</span>
-                        `);
+                const res = await fetch('/api/reports');
+                const data = await res.json();
+                data.forEach(p => {
+                    L.marker([p.lat, p.lon]).addTo(map)
+                     .bindPopup(`<b>${p.address}</b><br>Статус: ${p.status}`);
                 });
-            } catch (error) {
-                console.error('Ошибка загрузки данных:', error);
-            }
+            } catch (e) { console.error("Ошибка загрузки:", e); }
         }
 
-        loadReports();
+        map.on('click', async (e) => {
+            const desc = prompt("Что здесь случилось? (например: Обледенение)");
+            if (desc) {
+                const url = `/api/report?address=${encodeURIComponent(desc)}&lat=${e.latlng.lat}&lon=${e.latlng.lng}`;
+                const res = await fetch(url, { method: 'POST' });
+                if (res.ok) {
+                    alert("Отправлено!");
+                    location.reload();
+                }
+            }
+        });
+
+        loadMarkers();
     </script>
 </body>
 </html>
