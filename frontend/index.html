@@ -3,163 +3,124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Карта — AntiSnow</title>
+    <title>AntiSnow Сыктывкар</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
-        #map { height: 100vh; width: 100vw; z-index: 1; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; overflow: hidden; }
+        #sidebar { width: 0; background: white; transition: 0.3s; overflow-y: auto; z-index: 2000; display: flex; flex-direction: column; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
+        #sidebar.open { width: 350px; padding: 20px; }
+        #map { flex: 1; z-index: 1; }
         
-        /* Верхняя панель */
-        .top-nav {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            right: 20px;
-            z-index: 1000;
-            display: flex;
-            justify-content: space-between;
-            pointer-events: none; /* Пропускает клики сквозь панель на карту */
-        }
-        .nav-block {
-            background: white;
-            padding: 10px 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-            pointer-events: auto; /* Позволяет кликать на кнопки */
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        .user-info { font-weight: bold; color: #333; }
-        .role-badge { 
-            background: #007bff; 
-            color: white; 
-            padding: 2px 8px; 
-            border-radius: 4px; 
-            font-size: 12px; 
-            text-transform: uppercase;
-        }
-        button.logout { 
-            background: #f8f9fa; 
-            border: 1px solid #ddd; 
-            padding: 5px 10px; 
-            border-radius: 4px; 
-            cursor: pointer; 
-        }
-        button.logout:hover { background: #e2e6ea; }
+        .top-nav { position: absolute; top: 15px; left: 60px; right: 15px; z-index: 1000; display: flex; justify-content: space-between; pointer-events: none; }
+        .nav-block { background: white; padding: 8px 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); pointer-events: auto; display: flex; align-items: center; gap: 10px; }
         
-        .hint {
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 13px;
-        }
+        .user-info { font-weight: bold; font-size: 14px; }
+        .role-badge { background: #007bff; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; text-transform: uppercase; }
+        .role-admin { background: #dc3545; }
+        
+        #reportForm { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+        #reportForm input, #reportForm button { padding: 10px; border-radius: 6px; border: 1px solid #ddd; }
+        #reportForm button { background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; }
+        
+        .popup-photo { width: 100%; max-height: 150px; object-fit: cover; border-radius: 4px; margin: 8px 0; }
+        .btn-done { background: #28a745; color: white; border: none; padding: 8px; width: 100%; border-radius: 4px; cursor: pointer; }
+        
+        /* Стили цветных меток */
+        .marker-new { filter: hue-rotate(0deg); } /* Красный/Синий стандарт */
+        .marker-done { filter: hue-rotate(120deg); } /* Зеленый */
     </style>
 </head>
 <body>
 
-    <div class="top-nav">
-        <div class="nav-block">
-            <span class="user-info" id="display-email">Загрузка...</span>
-            <span class="role-badge" id="display-role">...</span>
-            <button class="logout" onclick="logout()">Выйти</button>
-        </div>
-        <div class="hint" id="action-hint">Нажми на карту, чтобы отметить сугроб</div>
+    <div id="sidebar">
+        <h3 id="side-title">Новая заявка</h3>
+        <form id="reportForm">
+            <input type="text" id="address" placeholder="Что случилось? (Напр: Сугроб у ТРЦ Июнь)" required>
+            <input type="hidden" id="lat"><input type="hidden" id="lon">
+            <label style="font-size: 12px;">Фото места:</label>
+            <input type="file" id="photo" accept="image/*">
+            <button type="submit">Отправить в AntiSnow</button>
+            <button type="button" onclick="closeSidebar()" style="background:#6c757d">Отмена</button>
+        </form>
     </div>
 
-    <div id="map"></div>
+    <div id="map">
+        <div class="top-nav">
+            <div class="nav-block">
+                <span class="user-info" id="display-email">...</span>
+                <span class="role-badge" id="display-role">...</span>
+                <button onclick="logout()" style="cursor:pointer">Выйти</button>
+            </div>
+        </div>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // 1. ПРОВЕРКА АВТОРИЗАЦИИ
         const token = localStorage.getItem('token');
         const role = localStorage.getItem('role');
-        const email = localStorage.getItem('user_email');
+        if (!token) window.location.href = '/login.html';
 
-        if (!token) {
-            window.location.href = '/login.html';
-        }
+        document.getElementById('display-email').innerText = localStorage.getItem('user_email');
+        const rBadge = document.getElementById('display-role');
+        rBadge.innerText = role === 'admin' ? 'Админ' : 'Житель';
+        if(role === 'admin') rBadge.classList.add('role-admin');
 
-        // Вывод данных юзера
-        document.getElementById('display-email').innerText = email;
-        document.getElementById('display-role').innerText = role === 'admin' ? 'Администратор' : 'Житель';
+        function logout() { localStorage.clear(); window.location.href = '/login.html'; }
 
-        function logout() {
-            localStorage.clear();
-            window.location.href = '/login.html';
-        }
+        // ЦЕНТР — СЫКТЫВКАР
+        const map = L.map('map').setView([61.66, 50.81], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // 2. НАСТРОЙКА КАРТЫ
-        // Центр — Москва (можно заменить на свои координаты)
-        const map = L.map('map').setView([55.75, 37.61], 11);
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
-
-        // 3. ЛОГИКА СОЗДАНИЯ ЗАЯВКИ
-        map.on('click', function(e) {
-            // Житель и Админ могут создавать, если захочешь запретить кому-то — добавь if
-            const address = prompt("Опишите проблему (например: Сильный гололед или сугроб):");
-            
-            if (address) {
-                const lat = e.latlng.lat;
-                const lon = e.latlng.lng;
-
-                fetch(`/api/report?address=${encodeURIComponent(address)}&lat=${lat}&lon=${lon}`, {
-                    method: 'POST'
-                })
-                .then(res => res.json())
-                .then(data => {
-                    addMarkerToMap(data);
-                    alert("Заявка успешно создана!");
-                })
-                .catch(err => alert("Ошибка сохранения"));
-            }
+        map.on('click', (e) => {
+            document.getElementById('sidebar').classList.add('open');
+            document.getElementById('lat').value = e.latlng.lat;
+            document.getElementById('lon').value = e.latlng.lng;
         });
 
-        // 4. ЗАГРУЗКА ВСЕХ МЕТОК
-        function loadReports() {
-            fetch('/api/reports')
-                .then(res => res.json())
-                .then(reports => {
-                    reports.forEach(report => {
-                        addMarkerToMap(report);
-                    });
-                });
+        function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); }
+
+        document.getElementById('reportForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const fd = new FormData();
+            fd.append('address', document.getElementById('address').value);
+            fd.append('lat', document.getElementById('lat').value);
+            fd.append('lon', document.getElementById('lon').value);
+            const p = document.getElementById('photo').files[0];
+            if(p) fd.append('photo', p);
+
+            const res = await fetch('/api/report', { method: 'POST', body: fd });
+            if(res.ok) { alert("Принято!"); location.reload(); }
+        };
+
+        async function load() {
+            const res = await fetch('/api/reports');
+            const data = await res.json();
+            data.forEach(r => {
+                // Если статус "Убрано", делаем метку зеленой через фильтр
+                const marker = L.marker([r.lat, r.lon]).addTo(map);
+                if (r.status === 'Убрано') {
+                    marker._icon.style.filter = "hue-rotate(140deg) saturate(2)"; 
+                }
+
+                let html = `<b>${r.address}</b><br>Статус: ${r.status}`;
+                if(r.photo_url) html += `<br><img src="${r.photo_url}" class="popup-photo">`;
+                
+                if(role === 'admin' && r.status === 'Новый') {
+                    html += `<br><button class="btn-done" onclick="setDone(${r.id})">Отметить: УБРАНО</button>`;
+                }
+                marker.bindPopup(html);
+            });
         }
 
-        function addMarkerToMap(report) {
-            // Цвет метки зависит от статуса
-            const markerColor = report.status === 'Новый' ? 'red' : 'green';
-            
-            // Мы используем стандартный маркер, но можно менять стили
-            const marker = L.marker([report.lat, report.lon]).addTo(map);
-            
-            let popupHtml = `
-                <div style="min-width: 150px;">
-                    <b>${report.address}</b><br>
-                    <small>Статус: ${report.status}</small><br>
-                    <hr>
-            `;
-
-            // ПРАВА АДМИНА: Кнопка смены статуса
-            if (role === 'admin' && report.status === 'Новый') {
-                popupHtml += `<button onclick="updateStatus(${report.id})" style="width:100%; background:green; color:white; border:none; padding:5px; border-radius:4px; cursor:pointer;">Убрано!</button>`;
-            }
-
-            popupHtml += `</div>`;
-            marker.bindPopup(popupHtml);
+        async function setDone(id) {
+            const res = await fetch(`/api/reports/${id}/status?new_status=Убрано`, {
+                method: 'PATCH',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if(res.ok) location.reload();
         }
 
-        function updateStatus(id) {
-            // Пока что просто выводим уведомление, позже добавим эндпоинт PATCH на бэкенд
-            alert("Статус заявки #" + id + " изменен на 'Убрано'");
-            location.reload(); 
-        }
-
-        loadReports();
+        load();
     </script>
 </body>
 </html>
