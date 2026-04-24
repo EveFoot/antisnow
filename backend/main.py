@@ -7,7 +7,6 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from pydantic import BaseModel
 from jose import jwt
 
 # --- DATABASE ---
@@ -34,8 +33,7 @@ class SnowReport(Base):
     lat = Column(Float)
     lon = Column(Float)
     snow_type = Column(String)
-    # Статусы: pending (красный), cleaned (синий), verified (зеленый)
-    status = Column(String, default="pending")
+    status = Column(String, default="pending") # pending, cleaned, verified
     photo_url = Column(String, nullable=True)
 
 Base.metadata.create_all(bind=engine)
@@ -59,7 +57,6 @@ def get_db():
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
 
-# Создание метки (теперь принимает Form данные для фото)
 @app.post("/reports")
 async def create_report(
     lat: float = Form(...),
@@ -82,7 +79,6 @@ async def create_report(
     db.commit()
     return {"status": "ok"}
 
-# Смена статуса на "Убрано" (Синий)
 @app.post("/cleaner/reports/{report_id}/done")
 async def mark_as_done(report_id: int, db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
@@ -91,7 +87,6 @@ async def mark_as_done(report_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "success"}
 
-# Смена статуса на "Проверено" (Зеленый)
 @app.post("/admin/reports/{report_id}/verify")
 def verify_report(report_id: int, db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
@@ -112,17 +107,19 @@ def delete_report(report_id: int, db: Session = Depends(get_db)):
 def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="Email busy")
+    # Первый юзер - админ
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
     hashed = hashlib.sha256(password.encode()).hexdigest()
     db.add(User(email=email, hashed_password=hashed, role=role))
     db.commit()
-    return {"status": "ok", "role": role}
+    return {"status": "ok"}
 
 @app.post("/auth/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == form_data.username).first()
     hashed = hashlib.sha256(form_data.password.encode()).hexdigest()
-    if not user or user.hashed_password != hashed: raise HTTPException(status_code=401)
+    if not user or user.hashed_password != hashed:
+        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
     token = jwt.encode({"sub": user.email, "role": user.role.value}, "SECRET", algorithm="HS256")
     return {"access_token": token, "token_type": "bearer", "role": user.role.value}
 
@@ -131,9 +128,9 @@ def get_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
 @app.put("/admin/users/{user_id}/role")
-def update_user_role(user_id: int, role_data: dict, db: Session = Depends(get_db)):
+async def update_user_role(user_id: int, data: dict, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user: raise HTTPException(status_code=404)
-    user.role = role_data['role']
+    user.role = data['role']
     db.commit()
     return {"status": "success"}
