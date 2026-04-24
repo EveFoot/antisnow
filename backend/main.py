@@ -10,11 +10,13 @@ from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
 from jose import jwt
 
+# --- DATABASE ---
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+# --- MODELS ---
 class UserRole(str, Enum):
     user = "user"
     cleaner = "cleaner"
@@ -46,11 +48,13 @@ class RoleUpdate(BaseModel):
 
 Base.metadata.create_all(bind=engine)
 
+# --- APP ---
 app = FastAPI(root_path="/api")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
+# Раздаем папку uploads по пути /api/static_uploads
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
@@ -58,21 +62,18 @@ def get_db():
     try: yield db
     finally: db.close()
 
+# --- ROUTES ---
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
 
 @app.post("/reports")
 def create_report(report: ReportCreate, db: Session = Depends(get_db)):
-    try:
-        new_report = SnowReport(lat=report.lat, lon=report.lon, snow_type=report.snow_type)
-        db.add(new_report)
-        db.commit()
-        db.refresh(new_report)
-        return new_report
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
+    new_report = SnowReport(lat=report.lat, lon=report.lon, snow_type=report.snow_type)
+    db.add(new_report)
+    db.commit()
+    db.refresh(new_report)
+    return new_report
 
 @app.post("/cleaner/reports/{report_id}/done")
 async def mark_as_done(report_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -87,9 +88,10 @@ async def mark_as_done(report_id: int, file: UploadFile = File(...), db: Session
         buffer.write(await file.read())
     
     report.status = "cleaned"
+    # Сохраняем полный путь, который поймет Nginx
     report.photo_url = f"/api/static_uploads/{filename}"
     db.commit()
-    return {"status": "success", "url": report.photo_url}
+    return {"status": "success"}
 
 @app.delete("/admin/reports/{report_id}")
 def delete_report(report_id: int, db: Session = Depends(get_db)):
