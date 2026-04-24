@@ -5,16 +5,17 @@
     <title>AntiSnow - Карта</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        :root { --primary: #007bff; --danger: #dc3545; }
+        :root { --primary: #007bff; --danger: #dc3545; --success: #28a745; }
         body { margin: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         #map { height: 100vh; width: 100vw; z-index: 1; }
         .top-nav { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px; }
-        .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; }
+        .btn { padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; transition: 0.3s; }
         .btn-primary { background: var(--primary); color: white; }
-        .side-panel { position: fixed; top: 0; right: -450px; width: 350px; height: 100vh; background: white; z-index: 2000; transition: 0.4s; padding: 30px; box-shadow: -5px 0 20px rgba(0,0,0,0.15); box-sizing: border-box; overflow-y: auto; }
+        .side-panel { position: fixed; top: 0; right: -450px; width: 350px; height: 100vh; background: white; z-index: 2000; transition: 0.4s; padding: 25px; box-shadow: -5px 0 20px rgba(0,0,0,0.15); box-sizing: border-box; overflow-y: auto; }
         .side-panel.open { right: 0; }
-        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
-        .user-card { border-bottom: 1px solid #eee; padding: 15px 0; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; }
+        .time-info { font-size: 11px; color: #666; margin-top: 5px; }
+        .report-img { width: 100%; border-radius: 8px; margin-top: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -33,7 +34,6 @@
     <select id="snow-type"><option>Снежная каша</option><option>Гололед</option><option>Сугробы</option></select>
     <input type="file" id="file-in">
     <button class="btn btn-primary" style="width:100%" onclick="submitReport()">Отправить</button>
-    <button class="btn" style="width:100%; margin-top:10px" onclick="closePanels()">Отмена</button>
 </div>
 
 <div id="auth-panel" class="side-panel">
@@ -44,7 +44,7 @@
 </div>
 
 <div id="admin-panel" class="side-panel">
-    <h2>Управление правами</h2>
+    <h2>Права пользователей</h2>
     <div id="users-list"></div>
     <button class="btn" style="width:100%; margin-top:20px" onclick="closePanels()">Закрыть</button>
 </div>
@@ -54,6 +54,12 @@
     const map = L.map('map', { zoomControl: false }).setView([61.6688, 50.8365], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
+    const icons = {
+        pending: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', iconSize: [25, 41], iconAnchor: [12, 41]}),
+        cleaned: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', iconSize: [25, 41], iconAnchor: [12, 41]}),
+        verified: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', iconSize: [25, 41], iconAnchor: [12, 41]})
+    };
+
     function togglePanel(id) {
         const p = document.getElementById(id);
         const isOpen = p.classList.contains('open');
@@ -61,6 +67,7 @@
         if(!isOpen) p.classList.add('open');
     }
     function closePanels() { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); }
+    function fmtDate(d) { return d ? new Date(d).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '--'; }
 
     map.on('click', e => {
         if(!localStorage.getItem('token')) return togglePanel('auth-panel');
@@ -70,8 +77,7 @@
     });
 
     async function handleAuth(type) {
-        const e = document.getElementById('email').value;
-        const p = document.getElementById('password').value;
+        const e = document.getElementById('email').value, p = document.getElementById('password').value;
         const url = type === 'register' ? `/api/auth/register?email=${e}&password=${p}` : `/api/auth/login`;
         let fd = null;
         if(type === 'login') { fd = new FormData(); fd.append('username', e); fd.append('password', p); }
@@ -85,31 +91,72 @@
     }
 
     async function submitReport() {
-        const token = localStorage.getItem('token');
         const fd = new FormData();
         fd.append('lat', document.getElementById('lat').value);
         fd.append('lon', document.getElementById('lon').value);
         fd.append('snow_type', document.getElementById('snow-type').value);
         const f = document.getElementById('file-in').files[0];
         if(f) fd.append('file', f);
-
-        const res = await fetch('/api/reports', {
+        await fetch('/api/reports', {
             method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + token },
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') },
             body: fd
         });
-        if(res.ok) location.reload(); else alert("Ошибка сохранения");
+        location.reload();
     }
 
     async function loadReports() {
         const res = await fetch('/api/reports');
         const reports = await res.json();
+        const role = localStorage.getItem('role');
         reports.forEach(r => {
-            const m = L.marker([r.lat, r.lon]).addTo(map);
-            let h = `<b>${r.snow_type}</b><br>Статус: ${r.status}`;
-            if(r.photo_url) h += `<br><img src="${r.photo_url}" style="width:150px">`;
+            const m = L.marker([r.lat, r.lon], {icon: icons[r.status] || icons.pending}).addTo(map);
+            let h = `<b>${r.snow_type}</b><br><div class="time-info">🕒 Создано: ${fmtDate(r.created_at)}</div>`;
+            if(r.status !== 'pending') h += `<div class="time-info">🧹 Обновлено: ${fmtDate(r.updated_at)}</div>`;
+            if(r.status === 'verified') h += `<b style="color:green">✓ Проверено админом</b>`;
+            if(r.photo_url) h += `<img src="${r.photo_url}" class="report-img" onclick="window.open('${r.photo_url}')">`;
+            
+            if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
+                h += `<hr><input type="file" id="f-${r.id}"><button class="btn btn-primary" style="width:100%;margin-top:5px" onclick="markDone(${r.id})">Убрано</button>`;
+            }
+            if(r.status === 'cleaned' && role === 'admin') {
+                h += `<hr><button class="btn" style="background:var(--success);color:white;width:100%" onclick="verify(${r.id})">Подтвердить</button>`;
+            }
+            if(role === 'admin') {
+                h += `<button class="btn" style="background:var(--danger);color:white;width:100%;margin-top:5px" onclick="del(${r.id})">Удалить</button>`;
+            }
             m.bindPopup(h);
         });
+    }
+
+    async function markDone(id) {
+        const fd = new FormData();
+        const f = document.getElementById(`f-${id}`).files[0];
+        if(f) fd.append('file', f);
+        await fetch(`/api/reports/${id}/done`, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') },
+            body: fd
+        });
+        location.reload();
+    }
+
+    async function verify(id) {
+        await fetch(`/api/reports/${id}/verify`, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') }
+        });
+        location.reload();
+    }
+
+    async function del(id) {
+        if(confirm("Удалить метку?")) {
+            await fetch(`/api/reports/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') }
+            });
+            location.reload();
+        }
     }
 
     async function openAdmin() {
@@ -117,9 +164,8 @@
         const res = await fetch('/api/admin/users', { headers: {'Authorization': 'Bearer '+localStorage.getItem('token')} });
         const users = await res.json();
         document.getElementById('users-list').innerHTML = users.map(u => `
-            <div class="user-card">
-                ${u.email}
-                <select onchange="updateRole(${u.id}, this.value)">
+            <div style="padding:10px; border-bottom:1px solid #eee">
+                ${u.email} <select onchange="upRole(${u.id}, this.value)">
                     <option value="user" ${u.role==='user'?'selected':''}>User</option>
                     <option value="cleaner" ${u.role==='cleaner'?'selected':''}>Cleaner</option>
                     <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
@@ -128,17 +174,17 @@
         `).join('');
     }
 
-    async function updateRole(id, role) {
+    async function upRole(id, role) {
         await fetch(`/api/admin/users/${id}/role`, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer '+localStorage.getItem('token')},
             body: JSON.stringify({role})
         });
-        alert("Роль обновлена");
     }
 
-    if(localStorage.getItem('token')) {
-        document.getElementById('auth-btn').innerText = 'Выйти';
+    const t = localStorage.getItem('token');
+    if(t) {
+        document.getElementById('auth-btn').innerText = 'Выход';
         document.getElementById('auth-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('add-btn').style.display = 'block';
         if(localStorage.getItem('role') === 'admin') document.getElementById('admin-btn').style.display = 'block';

@@ -10,7 +10,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt, JWTError
 
-# --- CONFIG ---
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 SECRET_KEY = "SECRET_SECRET_123" 
 ALGORITHM = "HS256"
@@ -38,14 +37,13 @@ class SnowReport(Base):
     lat = Column(Float)
     lon = Column(Float)
     snow_type = Column(String)
-    status = Column(String, default="pending") 
+    status = Column(String, default="pending") # pending, cleaned, verified
     photo_url = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
-
-app = FastAPI(title="AntiSnow API", root_path="/api")
+app = FastAPI(root_path="/api")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 UPLOAD_DIR = "uploads"
@@ -53,32 +51,22 @@ if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
-    db = SessionLocal()
-    try: yield db
-    finally: db.close()
+    db = SessionLocal(); yield db; db.close()
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email = payload.get("sub")
-        if not email: raise HTTPException(401)
-    except JWTError: raise HTTPException(401)
-    user = db.query(User).filter(User.email == email).first()
-    if not user: raise HTTPException(401)
-    return user
-
-# --- ROUTES ---
+        p = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        u = db.query(User).filter(User.email == p.get("sub")).first()
+        if not u: raise HTTPException(401)
+        return u
+    except: raise HTTPException(401)
 
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
 
 @app.post("/reports")
-async def create_report(
-    lat: float = Form(...), lon: float = Form(...), snow_type: str = Form(...),
-    file: UploadFile = File(None), db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+async def create(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form(...), file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
     path = None
     if file:
         fname = f"{uuid.uuid4()}.{file.filename.split('.')[-1]}"
@@ -88,32 +76,52 @@ async def create_report(
     db.commit()
     return {"ok": True}
 
-@app.post("/auth/register")
-def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
-    role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
-    hashed = hashlib.sha256(password.encode()).hexdigest()
-    db.add(User(email=email, hashed_password=hashed, role=role))
+@app.post("/reports/{r_id}/done")
+async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
+    rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
+    if file:
+        fname = f"done_{uuid.uuid4()}.{file.filename.split('.')[-1]}"
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
+        rep.photo_url = f"/api/static_uploads/{fname}"
+    rep.status = "cleaned"
+    rep.updated_at = datetime.utcnow()
     db.commit()
     return {"ok": True}
 
+@app.post("/reports/{r_id}/verify")
+def verify_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
+    if u.role != UserRole.admin: raise HTTPException(403)
+    db.query(SnowReport).filter(SnowReport.id == r_id).update({"status": "verified", "updated_at": datetime.utcnow()})
+    db.commit()
+    return {"ok": True}
+
+@app.delete("/reports/{r_id}")
+def delete_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
+    if u.role != UserRole.admin: raise HTTPException(403)
+    db.query(SnowReport).filter(SnowReport.id == r_id).delete()
+    db.commit()
+    return {"ok": True}
+
+@app.post("/auth/register")
+def reg(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
+    role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
+    db.add(User(email=email, hashed_password=hashlib.sha256(password.encode()).hexdigest(), role=role))
+    db.commit(); return {"ok": True}
+
 @app.post("/auth/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == form_data.username).first()
-    hashed = hashlib.sha256(form_data.password.encode()).hexdigest()
-    if not user or user.hashed_password != hashed: raise HTTPException(401)
-    token = jwt.encode({"sub": user.email, "role": user.role.value}, SECRET_KEY, algorithm=ALGORITHM)
-    return {"access_token": token, "token_type": "bearer", "role": user.role.value}
+def login(f: OAuth2PasswordRequestForm=Depends(), db: Session=Depends(get_db)):
+    u = db.query(User).filter(User.email == f.username).first()
+    if not u or u.hashed_password != hashlib.sha256(f.password.encode()).hexdigest(): raise HTTPException(401)
+    t = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
+    return {"access_token": t, "token_type": "bearer", "role": u.role.value}
 
 @app.get("/admin/users")
-def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != UserRole.admin: raise HTTPException(403)
-    return db.query(User).all()
+def get_users(db:Session=Depends(get_db), u:User=Depends(get_user)):
+    return db.query(User).all() if u.role == UserRole.admin else []
 
 @app.put("/admin/users/{u_id}/role")
-def update_role(u_id: int, data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != UserRole.admin: raise HTTPException(403)
-    user = db.query(User).filter(User.id == u_id).first()
-    if not user: raise HTTPException(404)
-    user.role = data.get("role")
-    db.commit()
+def up_role(u_id:int, data:dict, db:Session=Depends(get_db), u:User=Depends(get_user)):
+    if u.role == UserRole.admin:
+        db.query(User).filter(User.id == u_id).update({"role": data['role']})
+        db.commit()
     return {"ok": True}
