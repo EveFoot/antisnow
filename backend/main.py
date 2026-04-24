@@ -1,9 +1,9 @@
-import os, hashlib
-from datetime import datetime, timedelta
+import os, hashlib, uuid
 from enum import Enum
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -35,7 +35,8 @@ class SnowReport(Base):
     lat = Column(Float)
     lon = Column(Float)
     snow_type = Column(String)
-    status = Column(String, default="pending")
+    status = Column(String, default="pending") # "pending" или "cleaned"
+    photo_url = Column(String, nullable=True)
 
 class ReportCreate(BaseModel):
     lat: float
@@ -49,8 +50,12 @@ Base.metadata.create_all(bind=engine)
 
 # --- APP ---
 app = FastAPI(docs_url="/docs", openapi_url="/openapi.json", root_path="/api")
-
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Раздаем папку с фото как статику
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
+app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
     db = SessionLocal()
@@ -70,11 +75,29 @@ def create_report(report: ReportCreate, db: Session = Depends(get_db)):
     db.refresh(new_report)
     return new_report
 
+# Эндпоинт для уборщика: загрузка фото и смена статуса
+@app.post("/cleaner/reports/{report_id}/done")
+async def mark_as_done(report_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
+    if not report: raise HTTPException(status_code=404)
+    
+    # Сохраняем файл
+    file_ext = file.filename.split(".")[-1]
+    filename = f"{uuid.uuid4()}.{file_ext}"
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    
+    with open(file_path, "wb") as buffer:
+        buffer.write(await file.read())
+    
+    report.status = "cleaned"
+    report.photo_url = f"/api/static_uploads/{filename}"
+    db.commit()
+    return {"status": "success"}
+
 @app.delete("/admin/reports/{report_id}")
 def delete_report(report_id: int, db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
+    if not report: raise HTTPException(status_code=404)
     db.delete(report)
     db.commit()
     return {"status": "deleted"}
@@ -93,8 +116,7 @@ def register(email: str = Query(...), password: str = Query(...), db: Session = 
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == form_data.username).first()
     hashed = hashlib.sha256(form_data.password.encode()).hexdigest()
-    if not user or user.hashed_password != hashed:
-        raise HTTPException(status_code=401)
+    if not user or user.hashed_password != hashed: raise HTTPException(status_code=401)
     token = jwt.encode({"sub": user.email, "role": user.role.value}, "SECRET", algorithm="HS256")
     return {"access_token": token, "token_type": "bearer", "role": user.role.value}
 
@@ -105,8 +127,7 @@ def get_users(db: Session = Depends(get_db)):
 @app.put("/admin/users/{user_id}/role")
 def update_user_role(user_id: int, role_data: RoleUpdate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    if not user: raise HTTPException(status_code=404)
     user.role = role_data.role
     db.commit()
-    return {"status": "success", "new_role": user.role}
+    return {"status": "success"}

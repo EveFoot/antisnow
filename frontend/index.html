@@ -17,7 +17,6 @@
         .btn { padding: 8px 16px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; transition: 0.3s; }
         .btn-primary { background: #007bff; color: white; }
         .btn-admin { background: #dc3545; color: white; display: none; }
-        .btn-delete { background: #ff4d4d; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-top: 8px; }
         .side-panel {
             position: absolute; top: 0; right: -400px; width: 350px; height: 100vh;
             background: white; z-index: 1001; transition: 0.4s; padding: 25px;
@@ -26,13 +25,9 @@
         .side-panel.open { right: 0; }
         .close-btn { float: right; cursor: pointer; font-size: 24px; color: #666; }
         input, select { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
-        
-        .user-item {
-            padding: 15px; border-bottom: 1px solid #eee;
-            display: flex; flex-direction: column; gap: 8px;
-        }
-        .user-info b { display: block; color: #333; overflow: hidden; text-overflow: ellipsis; }
-        .role-select { padding: 5px; border-radius: 5px; background: #f9f9f9; cursor: pointer; }
+        .btn-clean { background: #28a745; color: white; margin-top: 10px; width: 100%; }
+        .btn-delete { background: #ff4d4d; color: white; margin-top: 5px; width: 100%; }
+        .report-img { width: 100%; border-radius: 8px; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -52,7 +47,7 @@
         <input type="password" id="password" placeholder="Пароль">
         <button class="btn btn-primary" style="width:100%" onclick="handleAuth('login')">Войти</button>
         <button class="btn" style="width:100%; margin-top:10px; background: #eee;" onclick="handleAuth('register')">Регистрация</button>
-        <p id="auth-status" style="color: red; font-size: 14px;"></p>
+        <p id="auth-status" style="color: red;"></p>
     </div>
 
     <div id="report-panel" class="side-panel">
@@ -147,24 +142,49 @@
             const role = localStorage.getItem('role');
             if (Array.isArray(data)) {
                 data.forEach(r => {
-                    let popupContent = `<b>${r.snow_type}</b>`;
-                    if (role === 'admin') {
-                        popupContent += `<br><button class="btn btn-delete" onclick="deleteReport(${r.id})">Удалить</button>`;
+                    // Цвет метки: зеленый если убрано, синий если нет
+                    const color = r.status === 'cleaned' ? 'green' : 'blue';
+                    const marker = L.marker([r.lat, r.lon]).addTo(map);
+                    
+                    let html = `<b>${r.snow_type}</b><br>Статус: ${r.status === 'cleaned' ? '✅ Убрано' : '⏳ Ожидает'}`;
+                    
+                    if (r.photo_url) {
+                        html += `<br><img src="${r.photo_url}" class="report-img" onclick="window.open(this.src)">`;
                     }
-                    L.marker([r.lat, r.lon]).addTo(map).bindPopup(popupContent);
+
+                    if (r.status !== 'cleaned' && (role === 'cleaner' || role === 'admin')) {
+                        html += `<hr><label>Фото уборки:</label><input type="file" id="file-${r.id}">
+                                 <button class="btn btn-clean" onclick="markDone(${r.id})">Отметить убрано</button>`;
+                    }
+                    
+                    if (role === 'admin') {
+                        html += `<button class="btn btn-delete" onclick="deleteReport(${r.id})">Удалить</button>`;
+                    }
+                    
+                    marker.bindPopup(html);
                 });
             }
         }
 
-        async function deleteReport(reportId) {
-            if (!confirm("Удалить эту метку?")) return;
-            const token = localStorage.getItem('token');
-            const res = await fetch(`/api/admin/reports/${reportId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
+        async function markDone(id) {
+            const fileInput = document.getElementById(`file-${id}`);
+            if (!fileInput.files[0]) return alert("Сначала выберите фото результата!");
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const res = await fetch(`/api/cleaner/reports/${id}/done`, {
+                method: 'POST',
+                body: formData
             });
             if (res.ok) location.reload();
-            else alert("Ошибка удаления");
+            else alert("Ошибка загрузки");
+        }
+
+        async function deleteReport(id) {
+            if (!confirm("Удалить?")) return;
+            const res = await fetch(`/api/admin/reports/${id}`, { method: 'DELETE' });
+            if (res.ok) location.reload();
         }
 
         async function openAdminPanel() {
@@ -177,8 +197,8 @@
             if (res.ok) {
                 list.innerHTML = data.map(u => `
                     <div class="user-item">
-                        <div class="user-info"><b>${u.email}</b></div>
-                        <select class="role-select" onchange="changeUserRole(${u.id}, this.value)">
+                        <b>${u.email}</b>
+                        <select onchange="changeUserRole(${u.id}, this.value)">
                             <option value="user" ${u.role === 'user' ? 'selected' : ''}>Житель</option>
                             <option value="cleaner" ${u.role === 'cleaner' ? 'selected' : ''}>Уборщик</option>
                             <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Админ</option>
@@ -189,14 +209,12 @@
         }
 
         async function changeUserRole(userId, newRole) {
-            const token = localStorage.getItem('token');
-            const res = await fetch(`/api/admin/users/${userId}/role`, {
+            await fetch(`/api/admin/users/${userId}/role`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ role: newRole })
             });
-            if (res.ok) alert("Роль обновлена!");
-            else alert("Ошибка при смене роли");
+            alert("Роль обновлена!");
         }
 
         updateUI();
