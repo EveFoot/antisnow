@@ -3,53 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AntiSnow - Карта уборки снега</title>
+    <title>AntiSnow - Сыктывкар</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
-        #map { height: 100vh; width: 100vw; z-index: 1; }
-
-        /* Верхняя панель */
+        body { margin: 0; font-family: sans-serif; overflow: hidden; }
+        #map { height: 100vh; width: 100vw; }
         .top-nav {
             position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
             z-index: 1000; background: white; padding: 10px 20px;
             border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            display: flex; gap: 15px; align-items: center;
+            display: flex; gap: 10px;
         }
-
-        .btn {
-            padding: 8px 16px; border: none; border-radius: 20px;
-            cursor: pointer; font-weight: 600; transition: 0.3s;
-        }
+        .btn { padding: 8px 16px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; }
         .btn-primary { background: #007bff; color: white; }
         .btn-admin { background: #dc3545; color: white; display: none; }
-        .btn:hover { opacity: 0.8; }
-
-        /* Боковые панели */
         .side-panel {
-            position: absolute; top: 0; right: -400px; width: 350px; height: 100vh;
-            background: white; z-index: 1001; transition: 0.4s;
-            box-shadow: -5px 0 15px rgba(0,0,0,0.1); padding: 25px;
-            display: flex; flex-direction: column;
+            position: absolute; top: 0; right: -400px; width: 320px; height: 100vh;
+            background: white; z-index: 1001; transition: 0.4s; padding: 20px;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.1);
         }
         .side-panel.open { right: 0; }
-        .close-btn { align-self: flex-end; cursor: pointer; font-size: 24px; }
-
-        input, select {
-            width: 100%; padding: 12px; margin: 10px 0;
-            border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box;
-        }
-
-        .user-card {
-            border: 1px solid #eee; padding: 10px; margin-bottom: 10px;
-            border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
-        }
+        input, select { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 5px; }
     </style>
 </head>
 <body>
 
     <div class="top-nav">
-        <button class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход / Регистрация</button>
+        <button id="auth-main-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход / Регистрация</button>
         <button class="btn btn-primary" onclick="togglePanel('report-panel')">Сообщить о снеге</button>
         <button id="admin-btn" class="btn btn-admin" onclick="openAdminPanel()">Права</button>
     </div>
@@ -57,162 +37,110 @@
     <div id="map"></div>
 
     <div id="auth-panel" class="side-panel">
-        <span class="close-btn" onclick="closePanels()">&times;</span>
-        <h2>Авторизация</h2>
+        <h2 id="auth-title">Авторизация</h2>
         <input type="email" id="email" placeholder="Email">
         <input type="password" id="password" placeholder="Пароль">
-        <button class="btn btn-primary" onclick="handleAuth('login')">Войти</button>
-        <button class="btn" onclick="handleAuth('register')">Зарегистрироваться</button>
-        <p id="auth-status"></p>
+        <button class="btn btn-primary" style="width:100%" onclick="handleAuth('login')">Войти</button>
+        <button class="btn" style="width:100%; margin-top:10px" onclick="handleAuth('register')">Регистрация</button>
+        <p id="auth-status" style="color: red;"></p>
+        <button class="btn" onclick="closePanels()" style="margin-top: 20px;">Закрыть</button>
     </div>
 
     <div id="report-panel" class="side-panel">
-        <span class="close-btn" onclick="closePanels()">&times;</span>
-        <h2>Сообщить о снеге</h2>
-        <p>Кликните на карту, чтобы выбрать место</p>
+        <h2>Новая метка</h2>
         <input type="text" id="lat" placeholder="Широта" readonly>
         <input type="text" id="lon" placeholder="Долгота" readonly>
         <select id="snow-type">
-            <option value="Лед">Лед</option>
             <option value="Снежная каша">Снежная каша</option>
+            <option value="Лед">Лед</option>
             <option value="Сугробы">Сугробы</option>
         </select>
-        <button class="btn btn-primary" onclick="submitReport()">Отправить</button>
-    </div>
-
-    <div id="admin-panel" class="side-panel">
-        <span class="close-btn" onclick="closePanels()">&times;</span>
-        <h2>Управление пользователями</h2>
-        <div id="users-list"></div>
+        <button class="btn btn-primary" style="width:100%" onclick="submitReport()">Отправить</button>
+        <button class="btn" onclick="closePanels()" style="margin-top: 20px;">Закрыть</button>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Инициализация карты
-        const map = L.map('map').setView([61.6688, 50.8365], 12);
+        // Сыктывкар
+        const map = L.map('map').setView([61.6688, 50.8365], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        let token = localStorage.getItem('token');
-        let userRole = localStorage.getItem('role');
+        function togglePanel(id) {
+            closePanels();
+            document.getElementById(id).classList.add('open');
+        }
+        function closePanels() {
+            document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open'));
+        }
 
-        if (userRole === 'admin') document.getElementById('admin-btn').style.display = 'block';
-
-        // Клик по карте для выбора координат
         map.on('click', (e) => {
             document.getElementById('lat').value = e.latlng.lat.toFixed(6);
             document.getElementById('lon').value = e.latlng.lng.toFixed(6);
             togglePanel('report-panel');
         });
 
-        function togglePanel(id) {
-            closePanels();
-            document.getElementById(id).classList.add('open');
+        // Управление кнопками
+        function updateUI() {
+            const token = localStorage.getItem('token');
+            const role = localStorage.getItem('role');
+            const btn = document.getElementById('auth-main-btn');
+            
+            if (token) {
+                btn.innerText = 'Выйти';
+                btn.onclick = () => { localStorage.clear(); location.reload(); };
+                if (role === 'admin') document.getElementById('admin-btn').style.display = 'block';
+            }
         }
 
-        function closePanels() {
-            document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open'));
-        }
-
-        // Авторизация и Регистрация
         async function handleAuth(type) {
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
-            const status = document.getElementById('auth-status');
+            let url = type === 'register' ? `/api/auth/register?email=${email}&password=${password}` : `/api/auth/login`;
+            
+            let body = null;
+            if (type === 'login') {
+                body = new FormData();
+                body.append('username', email);
+                body.append('password', password);
+            }
 
-            try {
-                let url = type === 'register' ? `/api/auth/register?email=${email}&password=${password}` : `/api/auth/login`;
-                let options = { method: 'POST' };
+            const res = await fetch(url, { method: 'POST', body: body });
+            const data = await res.json();
 
+            if (res.ok) {
                 if (type === 'login') {
-                    const formData = new FormData();
-                    formData.append('username', email);
-                    formData.append('password', password);
-                    options.body = formData;
-                }
-
-                const res = await fetch(url, options);
-                const data = await res.json();
-
-                if (res.ok) {
-                    if (type === 'login') {
-                        localStorage.setItem('token', data.access_token);
-                        localStorage.setItem('role', data.role);
-                        location.reload();
-                    } else {
-                        status.innerText = "Регистрация успешна! Теперь войдите.";
-                    }
-                } else {
-                    status.innerText = "Ошибка: " + (data.detail || "что-то пошло не так");
-                }
-            } catch (err) {
-                status.innerText = "Ошибка соединения с сервером";
-            }
+                    localStorage.setItem('token', data.access_token);
+                    localStorage.setItem('role', data.role);
+                    location.reload();
+                } else { alert("Успешно! Войдите."); }
+            } else { document.getElementById('auth-status').innerText = data.detail || "Ошибка"; }
         }
 
-        // Загрузка меток
-        async function loadReports() {
-            try {
-                const res = await fetch('/api/reports');
-                const data = await res.json();
-                
-                if (Array.isArray(data)) {
-                    data.forEach(r => {
-                        L.marker([r.lat, r.lon])
-                            .addTo(map)
-                            .bindPopup(`<b>${r.snow_type}</b><br>Статус: ${r.status}`);
-                    });
-                }
-            } catch (err) {
-                console.error("Ошибка загрузки меток", err);
-            }
-        }
-
-        // Отправка новой метки
         async function submitReport() {
-            const reportData = {
-                lat: parseFloat(document.getElementById('lat').value),
-                lon: parseFloat(document.getElementById('lon').value),
-                snow_type: document.getElementById('snow-type').value
-            };
+            const token = localStorage.getItem('token');
+            if (!token) return alert("Войдите в систему!");
 
             const res = await fetch('/api/reports', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(reportData)
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                    lat: parseFloat(document.getElementById('lat').value),
+                    lon: parseFloat(document.getElementById('lon').value),
+                    snow_type: document.getElementById('snow-type').value
+                })
             });
+            if (res.ok) location.reload();
+        }
 
-            if (res.ok) {
-                alert("Метка добавлена!");
-                location.reload();
+        async function loadReports() {
+            const res = await fetch('/api/reports');
+            const data = await res.json();
+            if (Array.isArray(data)) {
+                data.forEach(r => L.marker([r.lat, r.lon]).addTo(map).bindPopup(r.snow_type));
             }
         }
 
-        // Админка
-        async function openAdminPanel() {
-            togglePanel('admin-panel');
-            const list = document.getElementById('users-list');
-            list.innerHTML = "Загрузка...";
-
-            try {
-                const res = await fetch('/api/admin/users', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                const data = await res.json();
-
-                if (Array.isArray(data)) {
-                    list.innerHTML = data.map(u => `
-                        <div class="user-card">
-                            <span>${u.email} (<b>${u.role}</b>)</span>
-                        </div>
-                    `).join('');
-                } else {
-                    list.innerHTML = "Доступ запрещен или ошибка.";
-                }
-            } catch (err) {
-                list.innerHTML = "Ошибка загрузки.";
-            }
-        }
-
+        updateUI();
         loadReports();
     </script>
 </body>

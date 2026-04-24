@@ -1,16 +1,16 @@
 import os, hashlib
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import List
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from pydantic import BaseModel
 from jose import jwt
 
-# --- DATABASE SETUP ---
+# --- DATABASE ---
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -37,14 +37,15 @@ class SnowReport(Base):
     snow_type = Column(String)
     status = Column(String, default="pending")
 
+class ReportCreate(BaseModel):
+    lat: float
+    lon: float
+    snow_type: str
+
 Base.metadata.create_all(bind=engine)
 
 # --- APP ---
-app = FastAPI(
-    docs_url="/docs", 
-    openapi_url="/openapi.json",
-    root_path="/api"  
-)
+app = FastAPI(docs_url="/docs", openapi_url="/openapi.json", root_path="/api")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -54,7 +55,6 @@ def get_db():
     finally: db.close()
 
 # --- ROUTES ---
-
 @app.get("/ping")
 def ping():
     return {"status": "pong"}
@@ -62,6 +62,14 @@ def ping():
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
+
+@app.post("/reports")
+def create_report(report: ReportCreate, db: Session = Depends(get_db)):
+    new_report = SnowReport(lat=report.lat, lon=report.lon, snow_type=report.snow_type)
+    db.add(new_report)
+    db.commit()
+    db.refresh(new_report)
+    return new_report
 
 @app.post("/auth/register")
 def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
@@ -78,11 +86,10 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     user = db.query(User).filter(User.email == form_data.username).first()
     hashed = hashlib.sha256(form_data.password.encode()).hexdigest()
     if not user or user.hashed_password != hashed:
-        raise HTTPException(status_code=401)
-    token = jwt.encode({"sub": user.email, "role": user.role.value, "exp": datetime.utcnow() + timedelta(days=1)}, "SECRET", algorithm="HS256")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = jwt.encode({"sub": user.email, "role": user.role.value}, "SECRET", algorithm="HS256")
     return {"access_token": token, "token_type": "bearer", "role": user.role.value}
 
 @app.get("/admin/users")
 def get_users(db: Session = Depends(get_db)):
-    # Упрощенно для теста, позже добавишь проверку токена
     return db.query(User).all()
