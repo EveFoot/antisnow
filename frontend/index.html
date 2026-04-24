@@ -2,11 +2,11 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow | City Control</title>
+    <title>AntiSnow City Control</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root { --blue: #007AFF; --red: #FF3B30; --green: #34C759; --bg: #F2F2F7; }
-        body { margin: 0; font-family: -apple-system, sans-serif; background: var(--bg); }
+        body { margin: 0; font-family: -apple-system, sans-serif; background: var(--bg); color: #1c1c1e; }
         #map { height: 100vh; width: 100vw; z-index: 1; }
         
         .nav-bar { 
@@ -24,23 +24,22 @@
 
         .btn { border: none; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-weight: 600; transition: 0.2s; }
         .btn-blue { background: var(--blue); color: white; width: 100%; }
-        .btn-green { background: var(--green); color: white; width: 100%; margin-top: 5px; }
+        .btn-green { background: var(--green); color: white; width: 100%; margin-top: 8px; }
 
-        /* ИСПРАВЛЕНИЕ ФОТО */
-        .photo-container { width: 100%; border-radius: 10px; margin-top: 5px; background: #eee; overflow: hidden; }
-        .photo-img { width: 100%; display: block; height: auto; min-height: 100px; object-fit: contain; }
+        .photo-container { width: 100%; border-radius: 10px; margin-top: 5px; background: #eee; overflow: hidden; min-height: 80px; border: 1px solid #ddd; }
+        .photo-img { width: 100%; display: block; height: auto; object-fit: cover; }
         
-        .coord-text { font-family: monospace; font-size: 10px; color: #666; background: #eee; padding: 2px 5px; border-radius: 4px; }
-        input, select, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; font-family: inherit; }
-        .status-tag { padding: 4px 8px; border-radius: 8px; font-size: 10px; font-weight: bold; float: right; }
+        .coord-badge { font-family: monospace; font-size: 10px; color: #666; background: #f0f0f0; padding: 3px 6px; border-radius: 5px; display: inline-block; }
+        input, select, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
+        .status-tag { padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: bold; float: right; color: white; }
     </style>
 </head>
 <body>
 
 <div class="nav-bar">
     <b id="user-display">AntiSnow</b>
-    <button class="btn" style="background:#f0f0f0" onclick="toggle('auth-p')">Профиль</button>
-    <button id="adm-btn" class="btn" style="display:none; background:#333; color:white" onclick="openAdmin()">Админ</button>
+    <button class="btn" style="background:#f0f0f0; padding: 8px 15px" onclick="toggle('auth-p')">Профиль</button>
+    <button id="adm-btn" class="btn" style="display:none; background:#333; color:white; padding: 8px 15px" onclick="openAdmin()">Админ</button>
 </div>
 
 <div id="map"></div>
@@ -57,25 +56,23 @@
 </div>
 
 <div id="add-p" class="side-panel">
-    <h2>Новая проблема</h2>
+    <h2>Новая метка</h2>
     <div style="margin-bottom:10px">
-        <small>Координаты:</small><br>
-        <span id="coord-display" class="coord-text">0.0, 0.0</span>
+        <small>Координаты:</small> <span id="cur-coords" class="coord-badge">...</span>
     </div>
     <input type="hidden" id="lat"><input type="hidden" id="lon">
     <select id="stype">
-        <option>Снежные завалы</option>
+        <option>Снежный завал</option>
         <option>Гололед</option>
-        <option>Грязный лед</option>
+        <option>Слякоть</option>
     </select>
-    <textarea id="desc" placeholder="Описание проблемы (необязательно)" rows="3"></textarea>
-    <label>Прикрепить фото:</label>
+    <textarea id="desc" placeholder="Описание (необязательно)" rows="3"></textarea>
     <input type="file" id="file-in" accept="image/*">
-    <button class="btn btn-blue" style="margin-top:15px" onclick="saveReport()">Создать метку</button>
+    <button class="btn btn-blue" onclick="save()">Отправить</button>
 </div>
 
 <div id="adm-p" class="side-panel">
-    <h2>Управление пользователями</h2>
+    <h2>Пользователи</h2>
     <div id="u-list"></div>
     <button class="btn" style="width:100%; margin-top:20px; background:#f0f0f0" onclick="toggle()">Закрыть</button>
 </div>
@@ -94,7 +91,7 @@
         if(!localStorage.getItem('token')) return toggle('auth-p');
         document.getElementById('lat').value = e.latlng.lat;
         document.getElementById('lon').value = e.latlng.lng;
-        document.getElementById('coord-display').innerText = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+        document.getElementById('cur-coords').innerText = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
         toggle('add-p');
     });
 
@@ -109,11 +106,11 @@
                 localStorage.setItem('role', d.role);
                 localStorage.setItem('email', d.email);
                 location.reload();
-            } else alert("Успешная регистрация!");
+            } else alert("Регистрация успешна!");
         }
     }
 
-    async function saveReport() {
+    async function save() {
         const fd = new FormData();
         fd.append('lat', document.getElementById('lat').value);
         fd.append('lon', document.getElementById('lon').value);
@@ -121,22 +118,18 @@
         fd.append('description', document.getElementById('desc').value);
         const f = document.getElementById('file-in').files[0];
         if(f) fd.append('file', f);
-        await fetch('/api/reports', {
-            method:'POST', 
-            headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`},
-            body:fd
-        });
+        await fetch('/api/reports', {method:'POST', headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`}, body:fd});
         location.reload();
     }
 
     async function load() {
         const res = await fetch('/api/reports');
         const data = await res.json();
-        const role = localStorage.getItem('role');
+        const myRole = localStorage.getItem('role');
 
         data.forEach(r => {
             let color = 'red'; let sTxt = 'Новая';
-            if(r.status === 'cleaned') { color = 'blue'; sTxt = 'Очищено'; }
+            if(r.status === 'cleaned') { color = 'blue'; sTxt = 'Убрано'; }
             if(r.status === 'verified') { color = 'green'; sTxt = 'Проверено'; }
 
             const icon = L.icon({
@@ -145,34 +138,31 @@
             });
             const m = L.marker([r.lat, r.lon], {icon}).addTo(map);
 
+            const pBtn = (url) => {
+                if(!url) return `<div class="photo-container"></div>`;
+                const full = url.startsWith('http') ? url : window.location.origin + url;
+                return `<div class="photo-container"><img src="${full}" class="photo-img"></div>`;
+            };
+
             let h = `<div style="width:240px">
-                <span class="status-tag" style="background:${color}; color:white">${sTxt}</span>
+                <span class="status-tag" style="background:${color}">${sTxt}</span>
                 <b style="font-size:16px">${r.snow_type}</b><br>
-                <div style="font-size:11px; margin:5px 0; color:#444">${r.description || '<i>Без описания</i>'}</div>
-                <div class="coord-text" style="display:inline-block; margin-bottom:10px">${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}</div>
-                
-                <div style="display:flex; gap:8px">
-                    <div style="flex:1">
-                        <small>До:</small>
-                        <div class="photo-container">${r.photo_url ? `<img src="${r.photo_url}" class="photo-img">` : ''}</div>
-                        <div style="font-size:9px; color:#999">${new Date(r.created_at).toLocaleString()}</div>
-                    </div>
-                    <div style="flex:1">
-                        <small>После:</small>
-                        <div class="photo-container">${r.done_photo_url ? `<img src="${r.done_photo_url}" class="photo-img">` : ''}</div>
-                        <div style="font-size:9px; color:#999">${r.status!=='pending'?new Date(r.updated_at).toLocaleString():''}</div>
-                    </div>
+                <div style="font-size:12px; color:#444; margin:5px 0">${r.description || ''}</div>
+                <div class="coord-badge">${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}</div>
+                <div style="display:flex; gap:8px; margin-top:10px">
+                    <div style="flex:1"><small>До:</small>${pBtn(r.photo_url)}</div>
+                    <div style="flex:1"><small>После:</small>${pBtn(r.done_photo_url)}</div>
                 </div>`;
 
-            if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
+            if(r.status === 'pending' && (myRole === 'cleaner' || myRole === 'admin')) {
                 h += `<input type="file" id="f-${r.id}" style="font-size:10px; margin-top:10px">
-                      <button class="btn btn-blue" style="padding:6px; margin-top:5px; font-size:12px" onclick="setDone(${r.id})">Загрузить отчет</button>`;
+                      <button class="btn btn-blue" style="padding:6px; font-size:12px; margin-top:5px" onclick="setDone(${r.id})">Сдать отчет</button>`;
             }
-            if(r.status === 'cleaned' && role === 'admin') {
+            if(r.status === 'cleaned' && myRole === 'admin') {
                 h += `<button class="btn btn-green" style="padding:6px; font-size:12px" onclick="verify(${r.id})">Подтвердить</button>`;
             }
-            if(role === 'admin') {
-                h += `<button onclick="del(${r.id})" style="width:100%; border:none; background:none; color:red; font-size:11px; margin-top:10px; cursor:pointer">Удалить метку</button>`;
+            if(myRole === 'admin') {
+                h += `<button onclick="del(${r.id})" style="width:100%; background:none; border:none; color:red; font-size:11px; margin-top:12px; cursor:pointer">Удалить</button>`;
             }
             m.bindPopup(h + `</div>`);
         });
@@ -203,8 +193,8 @@
         const users = await res.json();
         document.getElementById('u-list').innerHTML = users.map(u => `
             <div style="padding:10px 0; border-bottom:1px solid #eee">
-                <div style="font-weight:bold">${u.email}</div>
-                <select onchange="updateRole(${u.id}, this.value)" style="margin-top:5px; padding:5px">
+                <div style="font-weight:600">${u.email}</div>
+                <select onchange="updateRole(${u.id}, this.value)" style="margin-top:5px">
                     <option value="user" ${u.role==='user'?'selected':''}>User</option>
                     <option value="cleaner" ${u.role==='cleaner'?'selected':''}>Cleaner</option>
                     <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
@@ -217,7 +207,6 @@
         await fetch(`/api/admin/users/${uid}/role?new_role=${role}`, {method:'PATCH', headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`}});
     }
 
-    // Init
     if(localStorage.getItem('token')) {
         document.getElementById('user-display').innerText = localStorage.getItem('email');
         document.getElementById('auth-form').style.display = 'none';
