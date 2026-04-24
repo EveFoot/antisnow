@@ -10,12 +10,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt
 
-# Конфиг папок
+# Конфиг
 UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
-SECRET_KEY = "TOKEN_KEY_2026" 
+SECRET_KEY = "FINAL_SECRET_2026" 
 ALGORITHM = "HS256"
 
 engine = create_engine(DATABASE_URL)
@@ -48,7 +48,6 @@ class SnowReport(Base):
     updated_at = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
-
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -63,7 +62,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         return db.query(User).filter(User.email == p.get("sub")).first()
     except: return None
 
-# API Метки
+# Роуты меток
 @app.get("/api/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).order_by(SnowReport.created_at.desc()).all()
@@ -88,7 +87,19 @@ async def mark_done(r_id:int, file:UploadFile=File(None), db:Session=Depends(get
     rep.status = "cleaned"; rep.updated_at = datetime.utcnow()
     db.commit(); return {"ok": True}
 
-# API Юзеры
+# Админка
+@app.get("/api/admin/users")
+def get_users(db:Session=Depends(get_db), u:User=Depends(get_current_user)):
+    if not u or u.role != UserRole.admin: raise HTTPException(403)
+    return db.query(User).all()
+
+@app.patch("/api/admin/users/{u_id}/role")
+def change_role(u_id:int, new_role:UserRole, db:Session=Depends(get_db), u:User=Depends(get_current_user)):
+    if not u or u.role != UserRole.admin: raise HTTPException(403)
+    target = db.query(User).filter(User.id == u_id).first()
+    target.role = new_role
+    db.commit(); return {"ok": True}
+
 @app.post("/api/auth/register")
 def reg(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
@@ -102,16 +113,5 @@ def login(f:OAuth2PasswordRequestForm=Depends(), db:Session=Depends(get_db)):
     t = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
     return {"access_token": t, "role": u.role.value, "email": u.email}
 
-@app.get("/api/admin/users")
-def get_users(db:Session=Depends(get_db), u:User=Depends(get_current_user)):
-    if not u or u.role != UserRole.admin: raise HTTPException(403)
-    return db.query(User).all()
-
-@app.delete("/api/reports/{r_id}")
-def delete_rep(r_id:int, db:Session=Depends(get_db), u:User=Depends(get_current_user)):
-    if not u or u.role != UserRole.admin: raise HTTPException(403)
-    db.query(SnowReport).filter(SnowReport.id == r_id).delete()
-    db.commit(); return {"ok": True}
-
-# Статика (ФОТО)
+# СТАТИКА В САМОМ КОНЦЕ
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
