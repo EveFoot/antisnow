@@ -1,6 +1,4 @@
-import os
-import hashlib
-import uuid
+import os, hashlib, uuid
 from enum import Enum
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,13 +9,11 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt
 
-# --- НАСТРОЙКИ БАЗЫ ДАННЫХ ---
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- МОДЕЛИ ---
 class UserRole(str, Enum):
     user = "user"
     cleaner = "cleaner"
@@ -39,26 +35,15 @@ class SnowReport(Base):
     status = Column(String, default="pending") 
     photo_url = Column(String, nullable=True)
 
-# Создание таблиц
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="AntiSnow API")
+# КРИТИЧЕСКИЙ МОМЕНТ: root_path для работы за Nginx
+app = FastAPI(title="AntiSnow API", root_path="/api")
 
-# --- CORS (Разрешаем твой сервер и локалхост для тестов) ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# --- СТАТИКА (ФОТОГРАФИИ) ---
 UPLOAD_DIR = "uploads"
-if not os.path.exists(UPLOAD_DIR): 
-    os.makedirs(UPLOAD_DIR)
-
-# Монтируем папку uploads. Внутри контейнера это /app/uploads
+if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
@@ -66,13 +51,11 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# --- ЭНДПОИНТЫ API ---
-
-@app.get("/api/reports")
+@app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
 
-@app.post("/api/reports")
+@app.post("/reports")
 async def create_report(
     lat: float = Form(...), lon: float = Form(...), snow_type: str = Form(...),
     file: UploadFile = File(None), db: Session = Depends(get_db)
@@ -80,43 +63,13 @@ async def create_report(
     path = None
     if file:
         fname = f"{uuid.uuid4()}.{file.filename.split('.')[-1]}"
-        with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: 
-            b.write(await file.read())
-        # Путь теперь формируется относительно корня домена
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         path = f"/api/static_uploads/{fname}"
     db.add(SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path))
     db.commit()
     return {"ok": True}
 
-@app.post("/api/cleaner/reports/{report_id}/done")
-async def mark_as_done(report_id: int, file: UploadFile = File(None), db: Session = Depends(get_db)):
-    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
-    if not report: raise HTTPException(404)
-    if file:
-        fname = f"{uuid.uuid4()}.{file.filename.split('.')[-1]}"
-        with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: 
-            b.write(await file.read())
-        report.photo_url = f"/api/static_uploads/{fname}"
-    report.status = "cleaned"
-    db.commit()
-    return {"ok": True}
-
-@app.post("/api/admin/reports/{report_id}/verify")
-def verify_report(report_id: int, db: Session = Depends(get_db)):
-    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
-    if report: report.status = "verified"
-    db.commit()
-    return {"ok": True}
-
-@app.delete("/api/admin/reports/{report_id}")
-def delete_report(report_id: int, db: Session = Depends(get_db)):
-    db.query(SnowReport).filter(SnowReport.id == report_id).delete()
-    db.commit()
-    return {"ok": True}
-
-# --- АУТЕНТИФИКАЦИЯ ---
-
-@app.post("/api/auth/register")
+@app.post("/auth/register")
 def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
     hashed = hashlib.sha256(password.encode()).hexdigest()
@@ -124,29 +77,17 @@ def register(email: str = Query(...), password: str = Query(...), db: Session = 
     db.commit()
     return {"ok": True}
 
-@app.post("/api/auth/login")
+@app.post("/auth/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == form_data.username).first()
     hashed = hashlib.sha256(form_data.password.encode()).hexdigest()
-    if not user or user.hashed_password != hashed: 
-        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
-    
-    # СЕКРЕТ и Алгоритм. В продакшене выносится в env
+    if not user or user.hashed_password != hashed: raise HTTPException(401)
     token = jwt.encode({"sub": user.email, "role": user.role.value}, "SECRET", algorithm="HS256")
     return {"access_token": token, "token_type": "bearer", "role": user.role.value}
 
-@app.get("/api/admin/users")
+@app.get("/admin/users")
 def get_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
-@app.put("/api/admin/users/{user_id}/role")
-async def update_role(user_id: int, data: dict, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-    if user: 
-        user.role = data['role']
-    db.commit()
-    return {"ok": True}
-
 @app.get("/")
-def health():
-    return {"status": "ok", "host": "37.230.169.95"}
+def health(): return {"status": "running"}

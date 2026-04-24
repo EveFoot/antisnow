@@ -2,45 +2,44 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow - Карта</title>
+    <title>AntiSnow - 37.230.169.95</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        :root { --primary: #007bff; }
-        body { margin: 0; font-family: sans-serif; overflow: hidden; }
+        body { margin: 0; font-family: sans-serif; }
         #map { height: 100vh; width: 100vw; }
         .top-nav { 
             position: absolute; top: 20px; left: 50%; transform: translateX(-50%); 
             z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; 
             box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px;
         }
-        .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        .btn-primary { background: var(--primary); color: white; }
+        .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-admin { background: #dc3545; color: white; display: none; }
         .side-panel { 
             position: absolute; top: 0; right: -400px; width: 320px; height: 100vh; 
             background: white; z-index: 2000; transition: 0.4s; padding: 25px; box-shadow: -5px 0 20px rgba(0,0,0,0.1);
         }
         .side-panel.open { right: 0; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box;}
+        input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 8px; }
     </style>
 </head>
 <body>
 
 <div class="top-nav">
-    <button id="auth-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход / Регистрация</button>
-    <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Добавить метку</button>
-    <a href="/api/docs" class="btn" style="background: #eee; text-decoration: none; color: black;">API Docs</a>
+    <button id="auth-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход</button>
+    <button id="admin-btn" class="btn btn-admin" onclick="alert('Переход в админку...')">Админ-панель</button>
+    <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Метка</button>
+    <a href="/api/docs" class="btn" style="background:#eee; text-decoration:none; color:black">Docs</a>
 </div>
 
 <div id="map"></div>
 
 <div id="auth-panel" class="side-panel">
-    <h2>Авторизация</h2>
+    <h2>Вход / Регистрация</h2>
     <input type="email" id="email" placeholder="Email">
     <input type="password" id="password" placeholder="Пароль">
     <button class="btn btn-primary" style="width:100%" onclick="handleAuth('login')">Войти</button>
-    <p style="text-align: center; margin: 15px 0;">или</p>
-    <button class="btn" style="width:100%; background: #28a745; color: white;" onclick="handleAuth('register')">Зарегистрироваться</button>
-    <button class="btn" style="width:100%; margin-top:10px;" onclick="closePanels()">Закрыть</button>
+    <button class="btn" style="width:100%; margin-top:10px; background:#28a745; color:white" onclick="handleAuth('register')">Регистрация</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -48,47 +47,37 @@
     const map = L.map('map', { zoomControl: false }).setView([61.6688, 50.8365], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    function togglePanel(id) { closePanels(); document.getElementById(id).classList.add('open'); }
-    function closePanels() { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); }
+    function togglePanel(id) { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); document.getElementById(id).classList.add('open'); }
+    
+    function parseJwt(token) {
+        try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; }
+    }
 
     async function handleAuth(type) {
         const e = document.getElementById('email').value;
         const p = document.getElementById('password').value;
-        
-        // Пути теперь всегда начинаются с /api/
-        const url = type === 'register' 
-            ? `/api/auth/register?email=${e}&password=${p}` 
-            : `/api/auth/login`;
-
+        const url = type === 'register' ? `/api/auth/register?email=${e}&password=${p}` : `/api/auth/login`;
         let body = null;
         if(type === 'login') {
-            body = new FormData();
-            body.append('username', e);
-            body.append('password', p);
+            body = new FormData(); body.append('username', e); body.append('password', p);
         }
-
-        try {
-            const res = await fetch(url, { method: 'POST', body: body });
-            if(res.ok) {
-                if(type === 'login') {
-                    const data = await res.json();
-                    localStorage.setItem('token', data.access_token);
-                    location.reload();
-                } else {
-                    alert("Регистрация успешна! Теперь войдите.");
-                }
-            } else {
-                alert("Ошибка. Проверьте данные.");
-            }
-        } catch(err) {
-            alert("Ошибка соединения с сервером");
-        }
+        const res = await fetch(url, { method: 'POST', body: body });
+        if(res.ok) {
+            if(type === 'login') {
+                const data = await res.json();
+                localStorage.setItem('token', data.access_token);
+                location.reload();
+            } else alert("Готово! Теперь войдите.");
+        } else alert("Ошибка");
     }
 
-    if(localStorage.getItem('token')) {
-        document.getElementById('auth-btn').innerText = 'Выход';
+    const token = localStorage.getItem('token');
+    if(token) {
+        const user = parseJwt(token);
+        document.getElementById('auth-btn').innerText = 'Выход (' + user.sub + ')';
         document.getElementById('auth-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('add-btn').style.display = 'block';
+        if(user.role === 'admin') document.getElementById('admin-btn').style.display = 'block';
     }
 </script>
 </body>
