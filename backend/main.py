@@ -10,9 +10,10 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt
 
-# Настройка путей и БД
+# 1. ПОДГОТОВКА ОКРУЖЕНИЯ
 UPLOAD_DIR = "/app/uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 SECRET_KEY = "SECRET_SECRET_123" 
@@ -23,6 +24,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+# 2. МОДЕЛИ
 class UserRole(str, Enum):
     user = "user"
     cleaner = "cleaner"
@@ -52,27 +54,33 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# API роуты должны быть ДО монтирования статики, если есть риск пересечения путей
+def get_db():
+    db = SessionLocal()
+    try: yield db
+    finally: db.close()
+
+# 3. РОУТЫ API
 @app.get("/api/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).order_by(SnowReport.created_at.desc()).all()
 
 @app.post("/api/reports")
 async def create_report(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form(...), file: UploadFile=File(None), db: Session=Depends(get_db)):
-    # Для упрощения убрал здесь get_current_user, чтобы ты мог протестировать анонимно, если нужно
     p_url = None
     if file:
         fname = f"b_{uuid.uuid4().hex}.jpg"
-        with open(os.path.join(UPLOAD_DIR, fname), "wb") as buf:
+        fpath = os.path.join(UPLOAD_DIR, fname)
+        with open(fpath, "wb") as buf:
             buf.write(await file.read())
         p_url = f"/static_uploads/{fname}"
     
-    new_rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=p_url)
-    db.add(new_rep); db.commit(); return {"ok": True}
+    rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=p_url)
+    db.add(rep); db.commit(); return {"ok": True}
 
 @app.post("/api/reports/{r_id}/done")
 async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(get_db)):
     rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
+    if not rep: raise HTTPException(404)
     if file:
         fname = f"a_{uuid.uuid4().hex}.jpg"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as buf:
@@ -85,13 +93,15 @@ async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(
 @app.post("/api/auth/register")
 def register(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
-    db.add(User(email=email, hashed_password=hashlib.sha256(password.encode()).hexdigest(), role=role))
+    hashed = hashlib.sha256(password.encode()).hexdigest()
+    db.add(User(email=email, hashed_password=hashed, role=role))
     db.commit(); return {"ok": True}
 
 @app.post("/api/auth/login")
 def login(form: OAuth2PasswordRequestForm=Depends(), db: Session=Depends(get_db)):
     u = db.query(User).filter(User.email == form.username).first()
-    if not u or u.hashed_password != hashlib.sha256(form.password.encode()).hexdigest(): raise HTTPException(401)
+    if not u or u.hashed_password != hashlib.sha256(form.password.encode()).hexdigest():
+        raise HTTPException(401)
     token = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
     return {"access_token": token, "role": u.role.value, "email": u.email}
 
@@ -99,10 +109,10 @@ def login(form: OAuth2PasswordRequestForm=Depends(), db: Session=Depends(get_db)
 def list_users(db: Session=Depends(get_db)):
     return db.query(User).all()
 
-# МОНТИРУЕМ СТАТИКУ В КОНЦЕ
-app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
+@app.delete("/api/reports/{r_id}")
+def delete_rep(r_id: int, db: Session=Depends(get_db)):
+    db.query(SnowReport).filter(SnowReport.id == r_id).delete()
+    db.commit(); return {"ok": True}
 
-def get_db():
-    db = SessionLocal()
-    try: yield db
-    finally: db.close()
+# ВАЖНО: Монтируем статику ПОСЛЕ всех API роутов
+app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
