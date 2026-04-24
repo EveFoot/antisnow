@@ -2,79 +2,104 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow City Control</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>AntiSnow Mobile</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root { --blue: #007AFF; --red: #FF3B30; --green: #34C759; --bg: #F2F2F7; }
-        body { margin: 0; font-family: -apple-system, sans-serif; background: var(--bg); color: #1c1c1e; }
+        
+        body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: var(--bg); overflow: hidden; }
         #map { height: 100vh; width: 100vw; z-index: 1; }
-        
+
+        /* Навигация сверху */
         .nav-bar { 
-            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); 
-            z-index: 1000; background: white; padding: 10px 25px; border-radius: 30px; 
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1); display: flex; gap: 15px; align-items: center;
+            position: absolute; top: 10px; left: 10px; right: 10px;
+            z-index: 1000; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
+            padding: 10px 15px; border-radius: 20px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+            display: flex; justify-content: space-between; align-items: center;
         }
 
+        /* Адаптивная боковая панель (на мобильных — шторка) */
         .side-panel { 
-            position: fixed; top: 0; right: -400px; width: 340px; height: 100vh; 
-            background: white; z-index: 2000; transition: 0.3s ease; padding: 25px; 
-            box-shadow: -5px 0 25px rgba(0,0,0,0.1); overflow-y: auto;
+            position: fixed; bottom: -100%; left: 0; width: 100%; height: 85vh; 
+            background: white; z-index: 2000; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
+            border-radius: 25px 25px 0 0; padding: 20px; box-sizing: border-box;
+            box-shadow: 0 -5px 25px rgba(0,0,0,0.15); overflow-y: auto;
         }
-        .side-panel.open { right: 0; }
-
-        .btn { border: none; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-weight: 600; transition: 0.2s; }
-        .btn-blue { background: var(--blue); color: white; width: 100%; }
-        .btn-green { background: var(--green); color: white; width: 100%; margin-top: 8px; }
-
-        .photo-container { width: 100%; border-radius: 10px; margin-top: 5px; background: #eee; overflow: hidden; min-height: 80px; border: 1px solid #ddd; }
-        .photo-img { width: 100%; display: block; height: auto; object-fit: cover; }
         
-        .coord-badge { font-family: monospace; font-size: 10px; color: #666; background: #f0f0f0; padding: 3px 6px; border-radius: 5px; display: inline-block; }
-        input, select, textarea { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
-        .status-tag { padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: bold; float: right; color: white; }
+        /* Для планшетов и ПК оставляем сбоку */
+        @media (min-width: 768px) {
+            .side-panel { top: 0; right: -400px; bottom: auto; left: auto; width: 360px; height: 100vh; border-radius: 0; }
+            .side-panel.open { right: 0; bottom: auto; }
+        }
+
+        .side-panel.open { bottom: 0; }
+
+        /* Элементы управления */
+        .btn { border: none; padding: 15px; border-radius: 15px; cursor: pointer; font-weight: 600; font-size: 16px; transition: 0.2s; width: 100%; }
+        .btn-blue { background: var(--blue); color: white; }
+        .btn-outline { background: #E9E9EB; color: #000; }
+
+        input, select, textarea { 
+            width: 100%; padding: 15px; margin: 10px 0; border: 1px solid #ddd; 
+            border-radius: 12px; font-size: 16px; box-sizing: border-box; background: #F2F2F7;
+        }
+
+        /* Красивый попап на карте */
+        .leaflet-popup-content-wrapper { border-radius: 15px; padding: 5px; }
+        .status-tag { padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: bold; color: white; }
+        
+        .photo-grid { display: flex; gap: 8px; margin: 10px 0; }
+        .photo-item { flex: 1; background: #eee; border-radius: 10px; min-height: 80px; overflow: hidden; position: relative; }
+        .photo-item img { width: 100%; height: 100%; object-fit: cover; position: absolute; }
     </style>
 </head>
 <body>
 
 <div class="nav-bar">
-    <b id="user-display">AntiSnow</b>
-    <button class="btn" style="background:#f0f0f0; padding: 8px 15px" onclick="toggle('auth-p')">Профиль</button>
-    <button id="adm-btn" class="btn" style="display:none; background:#333; color:white; padding: 8px 15px" onclick="openAdmin()">Админ</button>
+    <b id="user-display" style="font-size: 18px;">AntiSnow</b>
+    <div style="display: flex; gap: 8px;">
+        <button class="btn btn-outline" style="padding: 8px 15px; width: auto;" onclick="toggle('auth-p')">Профиль</button>
+        <button id="adm-btn" class="btn" style="display:none; background:#333; color:white; padding: 8px 15px; width: auto;" onclick="openAdmin()">Админ</button>
+    </div>
 </div>
 
 <div id="map"></div>
 
 <div id="auth-p" class="side-panel">
-    <h2>Аккаунт</h2>
+    <div style="width: 40px; height: 5px; background: #ddd; margin: 0 auto 20px; border-radius: 10px;"></div> <h2>Аккаунт</h2>
     <div id="auth-form">
         <input type="email" id="email" placeholder="Email">
         <input type="password" id="pass" placeholder="Пароль">
         <button class="btn btn-blue" onclick="auth('login')">Войти</button>
-        <button class="btn" style="width:100%; margin-top:10px" onclick="auth('reg')">Регистрация</button>
+        <button class="btn btn-outline" style="margin-top:10px" onclick="auth('reg')">Регистрация</button>
     </div>
-    <button id="out-btn" class="btn" style="width:100%; margin-top:40px; color:red; display:none" onclick="localStorage.clear();location.reload()">Выйти</button>
+    <button id="out-btn" class="btn" style="margin-top:30px; color:var(--red); display:none" onclick="logout()">Выйти из системы</button>
+    <button class="btn btn-outline" style="margin-top:15px" onclick="toggle()">Закрыть</button>
 </div>
 
 <div id="add-p" class="side-panel">
-    <h2>Новая метка</h2>
-    <div style="margin-bottom:10px">
-        <small>Координаты:</small> <span id="cur-coords" class="coord-badge">...</span>
-    </div>
+    <div style="width: 40px; height: 5px; background: #ddd; margin: 0 auto 20px; border-radius: 10px;"></div>
+    <h2>Новая проблема</h2>
+    <p style="font-size: 14px; color: #666;">Координаты: <span id="cur-coords" style="font-family: monospace;">...</span></p>
     <input type="hidden" id="lat"><input type="hidden" id="lon">
     <select id="stype">
-        <option>Снежный завал</option>
+        <option>Снежные завалы</option>
         <option>Гололед</option>
-        <option>Слякоть</option>
+        <option>Грязный лед / Каша</option>
     </select>
-    <textarea id="desc" placeholder="Описание (необязательно)" rows="3"></textarea>
+    <textarea id="desc" placeholder="Что именно не так?" rows="3"></textarea>
+    <label style="font-size: 14px; font-weight: 600;">Фото ситуации:</label>
     <input type="file" id="file-in" accept="image/*">
-    <button class="btn btn-blue" onclick="save()">Отправить</button>
+    <button class="btn btn-blue" style="margin-top: 10px;" onclick="save()">Опубликовать</button>
+    <button class="btn btn-outline" style="margin-top:10px" onclick="toggle()">Отмена</button>
 </div>
 
 <div id="adm-p" class="side-panel">
-    <h2>Пользователи</h2>
+    <h2>Управление</h2>
     <div id="u-list"></div>
-    <button class="btn" style="width:100%; margin-top:20px; background:#f0f0f0" onclick="toggle()">Закрыть</button>
+    <button class="btn btn-outline" style="margin-top:20px" onclick="toggle()">Закрыть</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -87,6 +112,8 @@
         if(id) document.getElementById(id).classList.add('open');
     }
 
+    function logout() { localStorage.clear(); location.reload(); }
+
     map.on('click', e => {
         if(!localStorage.getItem('token')) return toggle('auth-p');
         document.getElementById('lat').value = e.latlng.lat;
@@ -97,17 +124,20 @@
 
     async function auth(t) {
         const e = document.getElementById('email').value, p = document.getElementById('pass').value;
-        const fd = new FormData(); if(t==='login'){ fd.append('username', e); fd.append('password', p); }
-        const res = await fetch(t==='reg'?`/api/auth/register?email=${e}&password=${p}`:'/api/auth/login', {method:'POST', body:fd});
+        if(!e || !p) return alert("Заполните поля");
+        const fd = new FormData(); 
+        if(t==='login'){ fd.append('username', e); fd.append('password', p); }
+        const url = t==='reg' ? `/api/auth/register?email=${e}&password=${p}` : '/api/auth/login';
+        const res = await fetch(url, {method:'POST', body: t==='login' ? fd : null});
         if(res.ok) {
-            const d = await res.json();
             if(t==='login'){
+                const d = await res.json();
                 localStorage.setItem('token', d.access_token);
                 localStorage.setItem('role', d.role);
                 localStorage.setItem('email', d.email);
                 location.reload();
-            } else alert("Регистрация успешна!");
-        }
+            } else alert("Теперь войдите");
+        } else alert("Ошибка входа");
     }
 
     async function save() {
@@ -118,7 +148,12 @@
         fd.append('description', document.getElementById('desc').value);
         const f = document.getElementById('file-in').files[0];
         if(f) fd.append('file', f);
-        await fetch('/api/reports', {method:'POST', headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`}, body:fd});
+        
+        await fetch('/api/reports', {
+            method:'POST', 
+            headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`},
+            body:fd
+        });
         location.reload();
     }
 
@@ -134,43 +169,46 @@
 
             const icon = L.icon({
                 iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
-                iconSize: [25, 41], iconAnchor: [12, 41]
+                iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34]
             });
+
             const m = L.marker([r.lat, r.lon], {icon}).addTo(map);
 
-            const pBtn = (url) => {
-                if(!url) return `<div class="photo-container"></div>`;
-                const full = url.startsWith('http') ? url : window.location.origin + url;
-                return `<div class="photo-container"><img src="${full}" class="photo-img"></div>`;
-            };
+            const imgTpl = (url) => url ? `<img src="${window.location.origin + url}">` : `<div style="padding:20px; font-size:10px; color:#999">Нет фото</div>`;
 
-            let h = `<div style="width:240px">
-                <span class="status-tag" style="background:${color}">${sTxt}</span>
-                <b style="font-size:16px">${r.snow_type}</b><br>
-                <div style="font-size:12px; color:#444; margin:5px 0">${r.description || ''}</div>
-                <div class="coord-badge">${r.lat.toFixed(5)}, ${r.lon.toFixed(5)}</div>
-                <div style="display:flex; gap:8px; margin-top:10px">
-                    <div style="flex:1"><small>До:</small>${pBtn(r.photo_url)}</div>
-                    <div style="flex:1"><small>После:</small>${pBtn(r.done_photo_url)}</div>
-                </div>`;
+            let h = `<div style="width:260px; font-family: sans-serif;">
+                <div style="margin-bottom:8px">
+                    <span class="status-tag" style="background:var(--${color})">${sTxt}</span>
+                    <b style="font-size:16px">${r.snow_type}</b>
+                </div>
+                <p style="font-size:13px; color:#444; margin:5px 0;">${r.description || 'Без описания'}</p>
+                
+                <div class="photo-grid">
+                    <div class="photo-item">${imgTpl(r.photo_url)}</div>
+                    <div class="photo-item">${imgTpl(r.done_photo_url)}</div>
+                </div>
+                
+                <div style="font-size:10px; color:#999; margin-bottom:10px;">${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}</div>`;
 
             if(r.status === 'pending' && (myRole === 'cleaner' || myRole === 'admin')) {
-                h += `<input type="file" id="f-${r.id}" style="font-size:10px; margin-top:10px">
-                      <button class="btn btn-blue" style="padding:6px; font-size:12px; margin-top:5px" onclick="setDone(${r.id})">Сдать отчет</button>`;
+                h += `<input type="file" id="f-${r.id}" style="font-size:12px; margin-bottom:5px">
+                      <button class="btn btn-blue" style="padding:10px; font-size:14px" onclick="setDone(${r.id})">Отправить отчет</button>`;
             }
             if(r.status === 'cleaned' && myRole === 'admin') {
-                h += `<button class="btn btn-green" style="padding:6px; font-size:12px" onclick="verify(${r.id})">Подтвердить</button>`;
+                h += `<button class="btn btn-green" style="padding:10px; font-size:14px" onclick="verify(${r.id})">Подтвердить проверку</button>`;
             }
             if(myRole === 'admin') {
-                h += `<button onclick="del(${r.id})" style="width:100%; background:none; border:none; color:red; font-size:11px; margin-top:12px; cursor:pointer">Удалить</button>`;
+                h += `<button onclick="del(${r.id})" style="width:100%; border:none; background:none; color:var(--red); font-size:12px; margin-top:15px; cursor:pointer">Удалить метку</button>`;
             }
+            
             m.bindPopup(h + `</div>`);
         });
     }
 
     async function setDone(id) {
         const fd = new FormData(); const f = document.getElementById(`f-${id}`).files[0];
-        if(f) fd.append('file', f);
+        if(!f) return alert("Выберите фото результата");
+        fd.append('file', f);
         await fetch(`/api/reports/${id}/done`, {method:'POST', body:fd});
         location.reload();
     }
@@ -181,7 +219,7 @@
     }
 
     async function del(id) {
-        if(confirm('Удалить?')) {
+        if(confirm('Удалить эту метку?')) {
             await fetch(`/api/reports/${id}`, {method:'DELETE', headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`}});
             location.reload();
         }
@@ -192,9 +230,9 @@
         const res = await fetch('/api/admin/users', {headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`}});
         const users = await res.json();
         document.getElementById('u-list').innerHTML = users.map(u => `
-            <div style="padding:10px 0; border-bottom:1px solid #eee">
+            <div style="padding:15px 0; border-bottom:1px solid #eee">
                 <div style="font-weight:600">${u.email}</div>
-                <select onchange="updateRole(${u.id}, this.value)" style="margin-top:5px">
+                <select onchange="updateRole(${u.id}, this.value)" style="margin-top:8px">
                     <option value="user" ${u.role==='user'?'selected':''}>User</option>
                     <option value="cleaner" ${u.role==='cleaner'?'selected':''}>Cleaner</option>
                     <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
@@ -207,8 +245,9 @@
         await fetch(`/api/admin/users/${uid}/role?new_role=${role}`, {method:'PATCH', headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`}});
     }
 
+    // Проверка логина
     if(localStorage.getItem('token')) {
-        document.getElementById('user-display').innerText = localStorage.getItem('email');
+        document.getElementById('user-display').innerText = localStorage.getItem('email').split('@')[0];
         document.getElementById('auth-form').style.display = 'none';
         document.getElementById('out-btn').style.display = 'block';
         if(localStorage.getItem('role') === 'admin') document.getElementById('adm-btn').style.display = 'block';
