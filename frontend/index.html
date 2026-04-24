@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow - 37.230.169.95</title>
+    <title>AntiSnow - Карта</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; font-family: sans-serif; }
@@ -12,7 +12,7 @@
             z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; 
             box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px;
         }
-        .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; }
+        .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; text-decoration: none; }
         .btn-primary { background: #007bff; color: white; }
         .btn-admin { background: #dc3545; color: white; display: none; }
         .side-panel { 
@@ -20,22 +20,36 @@
             background: white; z-index: 2000; transition: 0.4s; padding: 25px; box-shadow: -5px 0 20px rgba(0,0,0,0.1);
         }
         .side-panel.open { right: 0; }
-        input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 8px; }
+        input, select { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
     </style>
 </head>
 <body>
 
 <div class="top-nav">
     <button id="auth-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход</button>
-    <button id="admin-btn" class="btn btn-admin" onclick="alert('Переход в админку...')">Админ-панель</button>
-    <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Метка</button>
-    <a href="/api/docs" class="btn" style="background:#eee; text-decoration:none; color:black">Docs</a>
+    <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Поставить метку</button>
+    <button id="admin-btn" class="btn btn-admin" onclick="alert('Загрузка списка пользователей...')">Админка</button>
+    <a href="/api/docs" class="btn" style="background:#eee; color:black">Docs</a>
 </div>
 
 <div id="map"></div>
 
+<div id="report-panel" class="side-panel">
+    <h2>Новая метка</h2>
+    <input type="text" id="lat" readonly>
+    <input type="text" id="lon" readonly>
+    <select id="snow-type">
+        <option>Снежная каша</option>
+        <option>Гололед</option>
+        <option>Сугробы</option>
+    </select>
+    <input type="file" id="file-in" accept="image/*">
+    <button class="btn btn-primary" style="width:100%" onclick="submitReport()">Отправить</button>
+    <button class="btn" style="width:100%; margin-top:10px" onclick="closePanels()">Отмена</button>
+</div>
+
 <div id="auth-panel" class="side-panel">
-    <h2>Вход / Регистрация</h2>
+    <h2>Авторизация</h2>
     <input type="email" id="email" placeholder="Email">
     <input type="password" id="password" placeholder="Пароль">
     <button class="btn btn-primary" style="width:100%" onclick="handleAuth('login')">Войти</button>
@@ -47,10 +61,26 @@
     const map = L.map('map', { zoomControl: false }).setView([61.6688, 50.8365], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    function togglePanel(id) { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); document.getElementById(id).classList.add('open'); }
-    
-    function parseJwt(token) {
-        try { return JSON.parse(atob(token.split('.')[1])); } catch (e) { return null; }
+    function togglePanel(id) { closePanels(); document.getElementById(id).classList.add('open'); }
+    function closePanels() { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); }
+
+    map.on('click', e => {
+        if(!localStorage.getItem('token')) return togglePanel('auth-panel');
+        document.getElementById('lat').value = e.latlng.lat.toFixed(6);
+        document.getElementById('lon').value = e.latlng.lng.toFixed(6);
+        togglePanel('report-panel');
+    });
+
+    async function submitReport() {
+        const fd = new FormData();
+        fd.append('lat', document.getElementById('lat').value);
+        fd.append('lon', document.getElementById('lon').value);
+        fd.append('snow_type', document.getElementById('snow-type').value);
+        const file = document.getElementById('file-in').files[0];
+        if(file) fd.append('file', file);
+
+        const res = await fetch('/api/reports', { method: 'POST', body: fd });
+        if(res.ok) { alert("Метка создана!"); location.reload(); }
     }
 
     async function handleAuth(type) {
@@ -67,17 +97,19 @@
                 const data = await res.json();
                 localStorage.setItem('token', data.access_token);
                 location.reload();
-            } else alert("Готово! Теперь войдите.");
+            } else alert("Успешно! Войдите.");
         } else alert("Ошибка");
     }
+
+    function parseJwt(t) { try { return JSON.parse(atob(t.split('.')[1])); } catch(e) { return null; } }
 
     const token = localStorage.getItem('token');
     if(token) {
         const user = parseJwt(token);
-        document.getElementById('auth-btn').innerText = 'Выход (' + user.sub + ')';
+        document.getElementById('auth-btn').innerText = 'Выход';
         document.getElementById('auth-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('add-btn').style.display = 'block';
-        if(user.role === 'admin') document.getElementById('admin-btn').style.display = 'block';
+        if(user && user.role === 'admin') document.getElementById('admin-btn').style.display = 'block';
     }
 </script>
 </body>

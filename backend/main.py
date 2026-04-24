@@ -37,7 +37,7 @@ class SnowReport(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# КРИТИЧЕСКИЙ МОМЕНТ: root_path для работы за Nginx
+# root_path="/api" автоматически добавит /api ко всем путям ниже
 app = FastAPI(title="AntiSnow API", root_path="/api")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -51,6 +51,7 @@ def get_db():
     try: yield db
     finally: db.close()
 
+# --- МЕТКИ ---
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
@@ -69,6 +70,7 @@ async def create_report(
     db.commit()
     return {"ok": True}
 
+# --- ПОЛЬЗОВАТЕЛИ ---
 @app.post("/auth/register")
 def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
@@ -90,4 +92,4 @@ def get_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
 @app.get("/")
-def health(): return {"status": "running"}
+def health(): return {"status": "ok"}
