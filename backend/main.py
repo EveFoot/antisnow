@@ -49,8 +49,16 @@ class RoleUpdate(BaseModel):
 Base.metadata.create_all(bind=engine)
 
 # --- APP ---
-app = FastAPI(docs_url="/docs", openapi_url="/openapi.json", root_path="/api")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(root_path="/api")
+
+# Максимально разрешаем всё для отладки
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
@@ -68,24 +76,29 @@ def get_reports(db: Session = Depends(get_db)):
 
 @app.post("/reports")
 def create_report(report: ReportCreate, db: Session = Depends(get_db)):
-    # Точки теперь создаются без проверки токена - доступно всем
-    new_report = SnowReport(lat=report.lat, lon=report.lon, snow_type=report.snow_type)
-    db.add(new_report)
-    db.commit()
-    db.refresh(new_report)
-    return new_report
+    try:
+        new_report = SnowReport(
+            lat=float(report.lat), 
+            lon=float(report.lon), 
+            snow_type=str(report.snow_type)
+        )
+        db.add(new_report)
+        db.commit()
+        db.refresh(new_report)
+        return new_report
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/cleaner/reports/{report_id}/done")
 async def mark_as_done(report_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
     if not report: raise HTTPException(status_code=404)
-    
     file_ext = file.filename.split(".")[-1]
     filename = f"{uuid.uuid4()}.{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, filename)
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
-    
     report.status = "cleaned"
     report.photo_url = f"/api/static_uploads/{filename}"
     db.commit()
