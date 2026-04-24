@@ -16,6 +16,9 @@ services:
     build: ./backend
     container_name: antisnow-backend-1
     restart: always
+    # Пробрасываем 8000, чтобы можно было проверить бэкенд напрямую
+    ports:
+      - "8000:8000"
     environment:
       DATABASE_URL: postgresql://user_admin:password@db:5432/antisnow_db
     depends_on:
@@ -25,9 +28,11 @@ services:
     image: nginx:latest
     container_name: antisnow-nginx-1
     restart: always
+    # Основной порт для сайта и API
     ports:
       - "80:80"
     volumes:
+      # Монтируем конфиг и фронтенд (пути указаны относительно папки с docker-compose)
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./frontend:/usr/share/nginx/html:ro
     depends_on:
