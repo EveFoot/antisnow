@@ -1,10 +1,11 @@
 import os, hashlib, uuid
+from datetime import datetime  # Добавили для времени
 from enum import Enum
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, create_engine
+from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt
@@ -34,6 +35,9 @@ class SnowReport(Base):
     snow_type = Column(String)
     status = Column(String, default="pending") 
     photo_url = Column(String, nullable=True)
+    # НОВЫЕ ПОЛЯ
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -47,8 +51,6 @@ def get_db():
     db = SessionLocal()
     try: yield db
     finally: db.close()
-
-# --- МЕТКИ ---
 
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
@@ -64,6 +66,7 @@ async def create_report(
         fname = f"{uuid.uuid4()}.{file.filename.split('.')[-1]}"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         path = f"/api/static_uploads/{fname}"
+    # Время создается автоматически через default=datetime.utcnow
     db.add(SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path))
     db.commit()
     return {"ok": True}
@@ -77,13 +80,16 @@ async def mark_as_done(report_id: int, file: UploadFile = File(None), db: Sessio
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         report.photo_url = f"/api/static_uploads/{fname}"
     report.status = "cleaned"
+    report.updated_at = datetime.utcnow() # Обновляем время при уборке
     db.commit()
     return {"ok": True}
 
 @app.post("/admin/reports/{report_id}/verify")
 def verify_report(report_id: int, db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
-    if report: report.status = "verified"
+    if report: 
+        report.status = "verified"
+        report.updated_at = datetime.utcnow()
     db.commit()
     return {"ok": True}
 
@@ -93,7 +99,7 @@ def delete_report(report_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True}
 
-# --- ПОЛЬЗОВАТЕЛИ ---
+# --- ПОЛЬЗОВАТЕЛИ (БЕЗ ИЗМЕНЕНИЙ) ---
 
 @app.post("/auth/register")
 def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):

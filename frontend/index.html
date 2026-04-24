@@ -2,20 +2,20 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow - Исправленная Админка</title>
+    <title>AntiSnow - Время уборки</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin: 0; font-family: sans-serif; overflow: hidden; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         #map { height: 100vh; width: 100vw; }
         .top-nav { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px; }
-        .btn { padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 13px; }
+        .btn { padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 13px; transition: 0.3s; }
         .btn-primary { background: #007bff; color: white; }
         .side-panel { position: absolute; top: 0; right: -400px; width: 350px; height: 100vh; background: white; z-index: 1001; transition: 0.4s; padding: 25px; box-shadow: -5px 0 15px rgba(0,0,0,0.1); overflow-y: auto; }
         .side-panel.open { right: 0; }
         .close-btn { float: right; cursor: pointer; font-size: 24px; }
         input, select { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
         .report-img { width: 100%; border-radius: 8px; margin: 10px 0; border: 1px solid #ddd; }
-        .user-card { padding: 10px; border-bottom: 1px solid #eee; margin-bottom: 5px; }
+        .time-info { font-size: 11px; color: #666; margin-bottom: 5px; line-height: 1.4; }
     </style>
 </head>
 <body>
@@ -42,7 +42,7 @@
 
     <div id="auth-panel" class="side-panel">
         <span class="close-btn" onclick="closePanels()">&times;</span>
-        <h2 id="auth-title">Вход</h2>
+        <h2>Аккаунт</h2>
         <input type="email" id="email" placeholder="Email">
         <input type="password" id="password" placeholder="Пароль">
         <button class="btn btn-primary" style="width:100%" onclick="handleAuth('login')">Войти</button>
@@ -51,7 +51,7 @@
 
     <div id="admin-panel" class="side-panel">
         <span class="close-btn" onclick="closePanels()">&times;</span>
-        <h2>Управление</h2>
+        <h2>Пользователи</h2>
         <div id="users-list"></div>
     </div>
 
@@ -65,6 +65,13 @@
             cleaned: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34]}),
             verified: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34]})
         };
+
+        // Красивое форматирование времени
+        function formatDate(dateStr) {
+            if (!dateStr) return 'Неизвестно';
+            const date = new Date(dateStr);
+            return date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
 
         map.on('click', e => {
             document.getElementById('lat').value = e.latlng.lat.toFixed(6);
@@ -105,14 +112,18 @@
             data.forEach(r => {
                 const m = L.marker([r.lat, r.lon], {icon: icons[r.status] || icons.pending}).addTo(map);
                 let h = `<b>${r.snow_type}</b><br>`;
+                
+                h += `<div class="time-info">🕒 Создано: ${formatDate(r.created_at)}</div>`;
+                if(r.status !== 'pending') {
+                    h += `<div class="time-info">🧹 Убрано: ${formatDate(r.updated_at)}</div>`;
+                }
+
                 if(r.photo_url) h += `<img src="${r.photo_url}" class="report-img" onclick="window.open('${r.photo_url}')">`;
                 
-                // Кнопка для Уборщика
                 if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
-                    h += `<hr><label>Фото уборки:</label><input type="file" id="done-f-${r.id}">
+                    h += `<hr><label style="font-size:11px">Фото результата:</label><input type="file" id="done-f-${r.id}">
                           <button class="btn btn-primary" style="width:100%;margin-top:5px" onclick="markDone(${r.id})">Убрано</button>`;
                 }
-                // Кнопки для Админа
                 if(r.status === 'cleaned' && role === 'admin') {
                     h += `<button class="btn btn-primary" style="background:green;width:100%;margin-top:5px" onclick="verify(${r.id})">Подтвердить</button>`;
                 }
@@ -139,7 +150,7 @@
             const res = await fetch('/api/admin/users');
             const users = await res.json();
             document.getElementById('users-list').innerHTML = users.map(u => `
-                <div class="user-card">
+                <div style="padding:10px; border-bottom:1px solid #eee">
                     <b>${u.email}</b><br>
                     <select onchange="changeRole(${u.id}, this.value)">
                         <option value="user" ${u.role==='user'?'selected':''}>Житель</option>
@@ -156,7 +167,6 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({role: role})
             });
-            alert("Роль изменена");
         }
 
         if(localStorage.getItem('role') === 'admin') document.getElementById('admin-link').style.display='block';
