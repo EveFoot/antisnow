@@ -16,7 +16,6 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- MODELS ---
 class UserRole(str, Enum):
     user = "user"
     cleaner = "cleaner"
@@ -46,15 +45,23 @@ class ReportCreate(BaseModel):
 class RoleUpdate(BaseModel):
     role: UserRole
 
+# Создаем таблицы
 Base.metadata.create_all(bind=engine)
 
 # --- APP ---
-app = FastAPI(root_path="/api")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 UPLOAD_DIR = "uploads"
-if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
-# Раздаем папку uploads по пути /api/static_uploads
+if not os.path.exists(UPLOAD_DIR): 
+    os.makedirs(UPLOAD_DIR)
+
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
@@ -79,16 +86,12 @@ def create_report(report: ReportCreate, db: Session = Depends(get_db)):
 async def mark_as_done(report_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
     if not report: raise HTTPException(status_code=404)
-    
     file_ext = file.filename.split(".")[-1]
     filename = f"{uuid.uuid4()}.{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, filename)
-    
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
-    
     report.status = "cleaned"
-    # Сохраняем полный путь, который поймет Nginx
     report.photo_url = f"/api/static_uploads/{filename}"
     db.commit()
     return {"status": "success"}

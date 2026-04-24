@@ -2,6 +2,7 @@ version: '3.8'
 services:
   db:
     image: postgres:15
+    container_name: antisnow-db-1
     volumes:
       - antisnow_data:/var/lib/postgresql/data
     environment:
@@ -11,6 +12,8 @@ services:
 
   backend:
     build: ./backend
+    container_name: antisnow-backend-1
+    restart: always
     volumes:
       - ./uploads:/backend/uploads
     depends_on:
@@ -20,6 +23,7 @@ services:
 
   nginx:
     image: nginx:latest
+    container_name: antisnow-nginx-1
     ports:
       - "80:80"
     volumes:
