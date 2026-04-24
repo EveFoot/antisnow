@@ -1,313 +1,152 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AntiSnow - Чистый город</title>
+import os
+import hashlib
+import uuid
+from enum import Enum
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from jose import jwt
+
+# --- НАСТРОЙКИ БАЗЫ ДАННЫХ ---
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# --- МОДЕЛИ ---
+class UserRole(str, Enum):
+    user = "user"
+    cleaner = "cleaner"
+    admin = "admin"
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    role = Column(SqlEnum(UserRole), default=UserRole.user)
+
+class SnowReport(Base):
+    __tablename__ = "reports"
+    id = Column(Integer, primary_key=True, index=True)
+    lat = Column(Float)
+    lon = Column(Float)
+    snow_type = Column(String)
+    status = Column(String, default="pending") 
+    photo_url = Column(String, nullable=True)
+
+# Создание таблиц
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="AntiSnow API")
+
+# --- CORS (Разрешаем твой сервер и локалхост для тестов) ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- СТАТИКА (ФОТОГРАФИИ) ---
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR): 
+    os.makedirs(UPLOAD_DIR)
+
+# Монтируем папку uploads. Внутри контейнера это /app/uploads
+app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
+
+def get_db():
+    db = SessionLocal()
+    try: yield db
+    finally: db.close()
+
+# --- ЭНДПОИНТЫ API ---
+
+@app.get("/api/reports")
+def get_reports(db: Session = Depends(get_db)):
+    return db.query(SnowReport).all()
+
+@app.post("/api/reports")
+async def create_report(
+    lat: float = Form(...), lon: float = Form(...), snow_type: str = Form(...),
+    file: UploadFile = File(None), db: Session = Depends(get_db)
+):
+    path = None
+    if file:
+        fname = f"{uuid.uuid4()}.{file.filename.split('.')[-1]}"
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: 
+            b.write(await file.read())
+        # Путь теперь формируется относительно корня домена
+        path = f"/api/static_uploads/{fname}"
+    db.add(SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path))
+    db.commit()
+    return {"ok": True}
+
+@app.post("/api/cleaner/reports/{report_id}/done")
+async def mark_as_done(report_id: int, file: UploadFile = File(None), db: Session = Depends(get_db)):
+    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
+    if not report: raise HTTPException(404)
+    if file:
+        fname = f"{uuid.uuid4()}.{file.filename.split('.')[-1]}"
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: 
+            b.write(await file.read())
+        report.photo_url = f"/api/static_uploads/{fname}"
+    report.status = "cleaned"
+    db.commit()
+    return {"ok": True}
+
+@app.post("/api/admin/reports/{report_id}/verify")
+def verify_report(report_id: int, db: Session = Depends(get_db)):
+    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
+    if report: report.status = "verified"
+    db.commit()
+    return {"ok": True}
+
+@app.delete("/api/admin/reports/{report_id}")
+def delete_report(report_id: int, db: Session = Depends(get_db)):
+    db.query(SnowReport).filter(SnowReport.id == report_id).delete()
+    db.commit()
+    return {"ok": True}
+
+# --- АУТЕНТИФИКАЦИЯ ---
+
+@app.post("/api/auth/register")
+def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
+    role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
+    hashed = hashlib.sha256(password.encode()).hexdigest()
+    db.add(User(email=email, hashed_password=hashed, role=role))
+    db.commit()
+    return {"ok": True}
+
+@app.post("/api/auth/login")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == form_data.username).first()
+    hashed = hashlib.sha256(form_data.password.encode()).hexdigest()
+    if not user or user.hashed_password != hashed: 
+        raise HTTPException(status_code=401, detail="Неверный логин или пароль")
     
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
-    <style>
-        :root {
-            --primary: #007bff;
-            --success: #28a745;
-            --danger: #dc3545;
-            --accent: #6f42c1;
-            --dark: #333;
-        }
+    # СЕКРЕТ и Алгоритм. В продакшене выносится в env
+    token = jwt.encode({"sub": user.email, "role": user.role.value}, "SECRET", algorithm="HS256")
+    return {"access_token": token, "token_type": "bearer", "role": user.role.value}
 
-        body { margin: 0; font-family: 'Segoe UI', Roboto, sans-serif; overflow: hidden; background: #f0f2f5; }
-        #map { height: 100vh; width: 100vw; z-index: 1; }
+@app.get("/api/admin/users")
+def get_users(db: Session = Depends(get_db)):
+    return db.query(User).all()
 
-        /* Навигация */
-        .top-nav { 
-            position: absolute; top: 20px; left: 50%; transform: translateX(-50%); 
-            z-index: 1000; background: white; padding: 8px 15px; border-radius: 50px; 
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15); display: flex; gap: 8px;
-            white-space: nowrap;
-        }
+@app.put("/api/admin/users/{user_id}/role")
+async def update_role(user_id: int, data: dict, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if user: 
+        user.role = data['role']
+    db.commit()
+    return {"ok": True}
 
-        .btn { 
-            padding: 10px 18px; border: none; border-radius: 25px; cursor: pointer; 
-            font-weight: 600; font-size: 13px; transition: all 0.2s ease;
-            display: flex; align-items: center; justify-content: center;
-        }
-        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-geo { background: var(--success); color: white; }
-        .btn-danger { background: var(--danger); color: white; }
-
-        /* Боковые панели */
-        .side-panel { 
-            position: absolute; top: 0; right: -400px; width: 320px; height: 100vh; 
-            background: white; z-index: 2000; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
-            padding: 25px; box-shadow: -5px 0 25px rgba(0,0,0,0.1); overflow-y: auto;
-        }
-        .side-panel.open { right: 0; }
-        
-        .close-btn { float: right; cursor: pointer; font-size: 28px; color: #ccc; line-height: 1; }
-        .close-btn:hover { color: var(--dark); }
-
-        h2 { margin-top: 0; color: var(--dark); font-size: 20px; }
-        input, select { 
-            width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; 
-            border-radius: 10px; box-sizing: border-box; font-size: 14px;
-        }
-
-        .report-img { 
-            width: 100%; border-radius: 10px; margin: 10px 0; border: 1px solid #eee; 
-            cursor: pointer; transition: 0.3s; 
-        }
-        .report-img:hover { filter: brightness(0.9); }
-
-        .time-info { font-size: 11px; color: #777; margin-bottom: 3px; }
-        
-        /* Кнопка Google Maps */
-        .route-btn { 
-            background: var(--accent); color: white; width: 100%; margin-top: 5px; 
-            text-decoration: none; display: block; text-align: center; 
-            line-height: 40px; border-radius: 10px; font-weight: bold;
-        }
-
-        @media (max-width: 600px) {
-            .top-nav { width: 95%; justify-content: center; top: 10px; padding: 5px; }
-            .btn { padding: 8px 12px; font-size: 11px; }
-            .side-panel { width: 100%; right: -100%; }
-        }
-    </style>
-</head>
-<body>
-
-    <div class="top-nav">
-        <button class="btn btn-geo" id="geo-btn" onclick="locateUser()">📍 Где я?</button>
-        <button id="auth-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход</button>
-        <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Метка</button>
-        <button id="admin-link" class="btn btn-danger" style="display:none" onclick="openAdminPanel()">Админ</button>
-    </div>
-
-    <div id="map"></div>
-
-    <div id="report-panel" class="side-panel">
-        <span class="close-btn" onclick="closePanels()">×</span>
-        <h2>Новая метка</h2>
-        <input type="text" id="lat" placeholder="Широта" readonly>
-        <input type="text" id="lon" placeholder="Долгота" readonly>
-        <select id="snow-type">
-            <option>Снежная каша</option>
-            <option>Гололед</option>
-            <option>Сугробы</option>
-            <option>Завалили выезд</option>
-        </select>
-        <input type="file" id="file-in" accept="image/*">
-        <button class="btn btn-primary" style="width:100%; margin-top: 10px;" onclick="submitReport()">Отправить</button>
-    </div>
-
-    <div id="auth-panel" class="side-panel">
-        <span class="close-btn" onclick="closePanels()">×</span>
-        <h2 id="auth-title">Вход в систему</h2>
-        <input type="email" id="email" placeholder="Email">
-        <input type="password" id="password" placeholder="Пароль">
-        <button class="btn btn-primary" style="width:100%; margin-top: 10px;" onclick="handleAuth('login')">Войти</button>
-        <button class="btn" style="width:100%; margin-top:10px; background: #eee;" onclick="handleAuth('register')">Регистрация</button>
-    </div>
-
-    <div id="admin-panel" class="side-panel">
-        <span class="close-btn" onclick="closePanels()">×</span>
-        <h2>Пользователи</h2>
-        <div id="users-list"></div>
-    </div>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
-    <script>
-        const map = L.map('map', { zoomControl: false }).setView([61.6688, 50.8365], 13);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-        L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-        let userMarker = null;
-
-        const icons = {
-            pending: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png', iconSize: [25, 41], iconAnchor: [12, 41]}),
-            cleaned: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png', iconSize: [25, 41], iconAnchor: [12, 41]}),
-            verified: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', iconSize: [25, 41], iconAnchor: [12, 41]})
-        };
-
-        // --- ГЕОЛОКАЦИЯ ---
-        function locateUser() {
-            if (!navigator.geolocation) return alert("GPS не поддерживается");
-            const btn = document.getElementById('geo-btn');
-            btn.innerText = "⏳ Поиск...";
-            btn.disabled = true;
-
-            navigator.geolocation.getCurrentPosition(pos => {
-                const coords = [pos.coords.latitude, pos.coords.longitude];
-                map.flyTo(coords, 17);
-                
-                if (userMarker) map.removeLayer(userMarker);
-                userMarker = L.circleMarker(coords, { 
-                    radius: 9, color: 'white', fillColor: '#007bff', fillOpacity: 1, weight: 3 
-                }).addTo(map).bindTooltip("Вы здесь").openTooltip();
-
-                btn.innerText = "📍 Где я?";
-                btn.disabled = false;
-            }, () => {
-                btn.innerText = "📍 Где я?";
-                btn.disabled = false;
-                alert("Не удалось определить местоположение. Проверьте разрешения.");
-            }, { enableHighAccuracy: true, timeout: 10000 });
-        }
-
-        // --- ГУГЛ КАРТЫ (ВМЕСТО ROUTING MACHINE) ---
-        function openGoogleMaps(lat, lon) {
-            const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`;
-            window.open(url, '_blank');
-        }
-
-        // --- ИНТЕРФЕЙС ПАНЕЛЕЙ ---
-        function togglePanel(id) {
-            const panel = document.getElementById(id);
-            const isOpen = panel.classList.contains('open');
-            closePanels();
-            if (!isOpen) panel.classList.add('open');
-        }
-
-        function closePanels() {
-            document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open'));
-        }
-
-        function formatDate(d) { 
-            return d ? new Date(d).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '--:--'; 
-        }
-
-        map.on('click', e => {
-            if(!localStorage.getItem('token')) return togglePanel('auth-panel');
-            document.getElementById('lat').value = e.latlng.lat.toFixed(6);
-            document.getElementById('lon').value = e.latlng.lng.toFixed(6);
-            togglePanel('report-panel');
-        });
-
-        // --- ЛОГИКА API ---
-        async function handleAuth(type) {
-            const e = document.getElementById('email').value;
-            const p = document.getElementById('password').value;
-            if(!e || !p) return alert("Заполните поля");
-            
-            const url = type === 'register' ? `/api/auth/register?email=${e}&password=${p}` : `/api/auth/login`;
-            let fd = null; 
-            if(type === 'login') { 
-                fd = new FormData(); 
-                fd.append('username', e); 
-                fd.append('password', p); 
-            }
-            
-            try {
-                const res = await fetch(url, { method: 'POST', body: fd });
-                const data = await res.json();
-                if(res.ok && type === 'login') {
-                    localStorage.setItem('token', data.access_token);
-                    localStorage.setItem('role', data.role);
-                    location.reload();
-                } else if(res.ok) alert("Регистрация успешна!");
-                else alert("Ошибка: " + (data.detail || "проверьте данные"));
-            } catch(err) { alert("Сервер недоступен"); }
-        }
-
-        async function loadReports() {
-            try {
-                const res = await fetch('/api/reports');
-                const data = await res.json();
-                const role = localStorage.getItem('role');
-
-                data.forEach(r => {
-                    const m = L.marker([r.lat, r.lon], {icon: icons[r.status] || icons.pending}).addTo(map);
-                    let h = `<div style="min-width: 180px;"><b>${r.snow_type}</b><br>`;
-                    h += `<div class="time-info">🕒 Отправлено: ${formatDate(r.created_at)}</div>`;
-                    if(r.status !== 'pending') h += `<div class="time-info">🧹 Убрано: ${formatDate(r.updated_at)}</div>`;
-                    
-                    if(r.photo_url) h += `<img src="${r.photo_url}" class="report-img" onclick="window.open('${r.photo_url}')">`;
-                    
-                    // Кнопка навигатора
-                    h += `<button class="route-btn" onclick="openGoogleMaps(${r.lat}, ${r.lon})">🧭 Навигатор</button>`;
-
-                    if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
-                        h += `<hr><input type="file" id="done-f-${r.id}" style="font-size:10px">
-                              <button class="btn btn-primary" style="width:100%;margin-top:5px" onclick="markDone(${r.id})">Готово</button>`;
-                    }
-                    if(role === 'admin') h += `<button class="btn" style="background:#ff4d4d; color:white; width:100%; margin-top:5px; font-size:10px" onclick="del(${r.id})">Удалить</button>`;
-                    
-                    m.bindPopup(h + "</div>");
-                });
-            } catch(e) { console.error("Ошибка загрузки"); }
-        }
-
-        async function submitReport() {
-            const token = localStorage.getItem('token');
-            const fd = new FormData();
-            fd.append('lat', document.getElementById('lat').value);
-            fd.append('lon', document.getElementById('lon').value);
-            fd.append('snow_type', document.getElementById('snow-type').value);
-            const file = document.getElementById('file-in').files[0];
-            if(file) fd.append('file', file);
-
-            const res = await fetch('/api/reports', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: fd
-            });
-            if(res.ok) location.reload();
-            else alert("Ошибка при отправке");
-        }
-
-        async function openAdminPanel() {
-            togglePanel('admin-panel');
-            const res = await fetch('/api/admin/users');
-            const users = await res.json();
-            document.getElementById('users-list').innerHTML = users.map(u => `
-                <div style="padding:10px; border-bottom:1px solid #eee; font-size: 13px;">
-                    <b>${u.email}</b>
-                    <select style="padding:5px; margin-top:5px" onchange="changeRole(${u.id}, this.value)">
-                        <option value="user" ${u.role==='user'?'selected':''}>Житель</option>
-                        <option value="cleaner" ${u.role==='cleaner'?'selected':''}>Уборщик</option>
-                        <option value="admin" ${u.role==='admin'?'selected':''}>Админ</option>
-                    </select>
-                </div>
-            `).join('');
-        }
-
-        async function changeRole(id, r) {
-            await fetch(`/api/admin/users/${id}/role`, { 
-                method: 'PUT', headers: {'Content-Type': 'application/json'}, 
-                body: JSON.stringify({role: r}) 
-            });
-        }
-
-        async function markDone(id) {
-            const fd = new FormData();
-            const f = document.getElementById(`done-f-${id}`).files[0];
-            if(f) fd.append('file', f);
-            await fetch(`/api/cleaner/reports/${id}/done`, { 
-                method: 'POST', 
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }, 
-                body: fd 
-            });
-            location.reload();
-        }
-
-        async function del(id) { 
-            if(confirm("Удалить метку?")) { 
-                await fetch(`/api/admin/reports/${id}`, { method: 'DELETE' }); 
-                location.reload(); 
-            } 
-        }
-
-        // Проверка входа при загрузке
-        if(localStorage.getItem('token')) {
-            document.getElementById('auth-btn').innerText = 'Выход';
-            document.getElementById('add-btn').style.display = 'block';
-            if(localStorage.getItem('role') === 'admin') document.getElementById('admin-link').style.display='block';
-        }
-
-        loadReports();
-    </script>
-</body>
-</html>
+@app.get("/")
+def health():
+    return {"status": "ok", "host": "37.230.169.95"}
