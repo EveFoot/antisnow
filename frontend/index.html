@@ -113,10 +113,10 @@
                 let html = `<b>${r.snow_type}</b><br>Статус: ${r.status}`;
                 if(r.photo_url) html += `<img src="${r.photo_url}" class="report-img" onclick="window.open('${r.photo_url}')">`;
 
-                if(r.status === 'Ожидает уборки' && (role === 'cleaner' || role === 'admin')) {
+                if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
                     html += `<hr><button class="btn btn-primary" style="width:100%; font-size:11px" onclick="markDone(${r.id})">Отметить как убрано</button>`;
                 }
-                if(r.status === 'Убрано' && role === 'admin') {
+                if(r.status === 'cleaned' && role === 'admin') {
                     html += `<hr><button class="btn btn-primary" style="width:100%; background:green; font-size:11px" onclick="verify(${r.id})">Подтвердить (ОК)</button>`;
                 }
                 if(role === 'admin') {
