@@ -10,13 +10,11 @@ from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
 from jose import jwt
 
-# --- DATABASE ---
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- MODELS ---
 class UserRole(str, Enum):
     user = "user"
     cleaner = "cleaner"
@@ -48,17 +46,8 @@ class RoleUpdate(BaseModel):
 
 Base.metadata.create_all(bind=engine)
 
-# --- APP ---
 app = FastAPI(root_path="/api")
-
-# Максимально разрешаем всё для отладки
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
@@ -69,7 +58,6 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# --- ROUTES ---
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
@@ -77,11 +65,7 @@ def get_reports(db: Session = Depends(get_db)):
 @app.post("/reports")
 def create_report(report: ReportCreate, db: Session = Depends(get_db)):
     try:
-        new_report = SnowReport(
-            lat=float(report.lat), 
-            lon=float(report.lon), 
-            snow_type=str(report.snow_type)
-        )
+        new_report = SnowReport(lat=report.lat, lon=report.lon, snow_type=report.snow_type)
         db.add(new_report)
         db.commit()
         db.refresh(new_report)
@@ -94,15 +78,18 @@ def create_report(report: ReportCreate, db: Session = Depends(get_db)):
 async def mark_as_done(report_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
     if not report: raise HTTPException(status_code=404)
+    
     file_ext = file.filename.split(".")[-1]
     filename = f"{uuid.uuid4()}.{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, filename)
+    
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
+    
     report.status = "cleaned"
     report.photo_url = f"/api/static_uploads/{filename}"
     db.commit()
-    return {"status": "success"}
+    return {"status": "success", "url": report.photo_url}
 
 @app.delete("/admin/reports/{report_id}")
 def delete_report(report_id: int, db: Session = Depends(get_db)):
