@@ -10,7 +10,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt, JWTError
 
-# Настройки
+# --- CONFIG ---
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 SECRET_KEY = "SECRET_SECRET_123" 
 ALGORITHM = "HS256"
@@ -60,12 +60,14 @@ def get_db():
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None: raise HTTPException(401)
+        email = payload.get("sub")
+        if not email: raise HTTPException(401)
     except JWTError: raise HTTPException(401)
     user = db.query(User).filter(User.email == email).first()
-    if user is None: raise HTTPException(401)
+    if not user: raise HTTPException(401)
     return user
+
+# --- ROUTES ---
 
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
@@ -75,7 +77,7 @@ def get_reports(db: Session = Depends(get_db)):
 async def create_report(
     lat: float = Form(...), lon: float = Form(...), snow_type: str = Form(...),
     file: UploadFile = File(None), db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user) 
+    current_user: User = Depends(get_current_user)
 ):
     path = None
     if file:
@@ -97,8 +99,8 @@ def register(email: str = Query(...), password: str = Query(...), db: Session = 
 @app.post("/auth/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or user.hashed_password != hashlib.sha256(form_data.password.encode()).hexdigest():
-        raise HTTPException(401)
+    hashed = hashlib.sha256(form_data.password.encode()).hexdigest()
+    if not user or user.hashed_password != hashed: raise HTTPException(401)
     token = jwt.encode({"sub": user.email, "role": user.role.value}, SECRET_KEY, algorithm=ALGORITHM)
     return {"access_token": token, "token_type": "bearer", "role": user.role.value}
 
@@ -108,9 +110,10 @@ def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_cu
     return db.query(User).all()
 
 @app.put("/admin/users/{u_id}/role")
-def change_role(u_id: int, data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def update_role(u_id: int, data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != UserRole.admin: raise HTTPException(403)
     user = db.query(User).filter(User.id == u_id).first()
-    user.role = data['role']
+    if not user: raise HTTPException(404)
+    user.role = data.get("role")
     db.commit()
     return {"ok": True}

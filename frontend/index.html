@@ -2,27 +2,16 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow - 37.230.169.95</title>
+    <title>AntiSnow - Карта</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        :root { --primary: #007bff; --danger: #dc3545; --success: #28a745; }
+        :root { --primary: #007bff; --danger: #dc3545; }
         body { margin: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
         #map { height: 100vh; width: 100vw; z-index: 1; }
-
-        .top-nav { 
-            position: absolute; top: 20px; left: 50%; transform: translateX(-50%); 
-            z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px;
-        }
+        .top-nav { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px; }
         .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; }
         .btn-primary { background: var(--primary); color: white; }
-        .btn-admin { background: var(--danger); color: white; display: none; }
-
-        .side-panel { 
-            position: fixed; top: 0; right: -450px; width: 350px; height: 100vh; 
-            background: white; z-index: 2000; transition: 0.5s cubic-bezier(0.4, 0, 0.2, 1); 
-            padding: 30px; box-shadow: -5px 0 20px rgba(0,0,0,0.15); box-sizing: border-box;
-        }
+        .side-panel { position: fixed; top: 0; right: -450px; width: 350px; height: 100vh; background: white; z-index: 2000; transition: 0.4s; padding: 30px; box-shadow: -5px 0 20px rgba(0,0,0,0.15); box-sizing: border-box; overflow-y: auto; }
         .side-panel.open { right: 0; }
         input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box; }
         .user-card { border-bottom: 1px solid #eee; padding: 15px 0; }
@@ -32,39 +21,32 @@
 
 <div class="top-nav">
     <button id="auth-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход</button>
-    <button id="add-btn" class="btn btn-primary" style="display:none">Поставить метку (клик по карте)</button>
-    <button id="admin-btn" class="btn btn-admin" onclick="togglePanel('admin-panel')">Упр. правами</button>
+    <button id="add-btn" class="btn btn-primary" style="display:none">Добавить (клик на карту)</button>
+    <button id="admin-btn" class="btn btn-primary" style="background:var(--danger); display:none" onclick="openAdmin()">Админка</button>
 </div>
 
 <div id="map"></div>
 
 <div id="report-panel" class="side-panel">
     <h2>Новая метка</h2>
-    <input type="text" id="lat" readonly>
-    <input type="text" id="lon" readonly>
-    <select id="snow-type">
-        <option value="Снежная каша">Снежная каша</option>
-        <option value="Гололед">Гололед</option>
-        <option value="Сугробы">Сугробы</option>
-    </select>
-    <input type="file" id="file-in" accept="image/*">
+    <input type="text" id="lat" readonly><input type="text" id="lon" readonly>
+    <select id="snow-type"><option>Снежная каша</option><option>Гололед</option><option>Сугробы</option></select>
+    <input type="file" id="file-in">
     <button class="btn btn-primary" style="width:100%" onclick="submitReport()">Отправить</button>
-    <button class="btn" style="width:100%; margin-top:10px;" onclick="closePanels()">Отмена</button>
+    <button class="btn" style="width:100%; margin-top:10px" onclick="closePanels()">Отмена</button>
 </div>
 
 <div id="auth-panel" class="side-panel">
     <h2>Аккаунт</h2>
-    <input type="email" id="email" placeholder="Email">
-    <input type="password" id="password" placeholder="Пароль">
+    <input type="email" id="email" placeholder="Email"><input type="password" id="password" placeholder="Пароль">
     <button class="btn btn-primary" style="width:100%" onclick="handleAuth('login')">Войти</button>
-    <button class="btn" style="width:100%; margin-top:10px; background:var(--success); color:white" onclick="handleAuth('register')">Регистрация</button>
-    <button class="btn" style="width:100%; margin-top:10px;" onclick="closePanels()">Закрыть</button>
+    <button class="btn" style="width:100%; margin-top:10px" onclick="handleAuth('register')">Регистрация</button>
 </div>
 
 <div id="admin-panel" class="side-panel">
-    <h2>Права пользователей</h2>
-    <div id="users-list" style="max-height: 80vh; overflow-y: auto;"></div>
-    <button class="btn" style="width:100%; margin-top:10px;" onclick="closePanels()">Закрыть</button>
+    <h2>Управление правами</h2>
+    <div id="users-list"></div>
+    <button class="btn" style="width:100%; margin-top:20px" onclick="closePanels()">Закрыть</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -74,14 +56,11 @@
 
     function togglePanel(id) {
         const p = document.getElementById(id);
-        const isOpened = p.classList.contains('open');
+        const isOpen = p.classList.contains('open');
         closePanels();
-        if(!isOpened) p.classList.add('open');
+        if(!isOpen) p.classList.add('open');
     }
-
-    function closePanels() {
-        document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open'));
-    }
+    function closePanels() { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); }
 
     map.on('click', e => {
         if(!localStorage.getItem('token')) return togglePanel('auth-panel');
@@ -96,18 +75,17 @@
         const url = type === 'register' ? `/api/auth/register?email=${e}&password=${p}` : `/api/auth/login`;
         let fd = null;
         if(type === 'login') { fd = new FormData(); fd.append('username', e); fd.append('password', p); }
-
         const res = await fetch(url, { method: 'POST', body: fd });
-        if(res.ok) {
-            if(type === 'login') {
-                const data = await res.json();
-                localStorage.setItem('token', data.access_token);
-                location.reload();
-            } else alert("Регистрация успешна!");
-        } else alert("Ошибка!");
+        const data = await res.json();
+        if(res.ok && type === 'login') {
+            localStorage.setItem('token', data.access_token);
+            localStorage.setItem('role', data.role);
+            location.reload();
+        } else if(res.ok) alert("Успешно!");
     }
 
     async function submitReport() {
+        const token = localStorage.getItem('token');
         const fd = new FormData();
         fd.append('lat', document.getElementById('lat').value);
         fd.append('lon', document.getElementById('lon').value);
@@ -117,56 +95,55 @@
 
         const res = await fetch('/api/reports', {
             method: 'POST',
-            body: fd,
-            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') }
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: fd
         });
-        if(res.ok) { alert("Метка добавлена!"); location.reload(); }
-        else { alert("Ошибка при сохранении метки"); }
+        if(res.ok) location.reload(); else alert("Ошибка сохранения");
     }
 
-    async function loadUsers() {
-        const res = await fetch('/api/admin/users', {
-            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') }
+    async function loadReports() {
+        const res = await fetch('/api/reports');
+        const reports = await res.json();
+        reports.forEach(r => {
+            const m = L.marker([r.lat, r.lon]).addTo(map);
+            let h = `<b>${r.snow_type}</b><br>Статус: ${r.status}`;
+            if(r.photo_url) h += `<br><img src="${r.photo_url}" style="width:150px">`;
+            m.bindPopup(h);
         });
+    }
+
+    async function openAdmin() {
+        togglePanel('admin-panel');
+        const res = await fetch('/api/admin/users', { headers: {'Authorization': 'Bearer '+localStorage.getItem('token')} });
         const users = await res.json();
-        const container = document.getElementById('users-list');
-        container.innerHTML = users.map(u => `
+        document.getElementById('users-list').innerHTML = users.map(u => `
             <div class="user-card">
-                <b>${u.email}</b>
+                ${u.email}
                 <select onchange="updateRole(${u.id}, this.value)">
-                    <option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option>
-                    <option value="cleaner" ${u.role === 'cleaner' ? 'selected' : ''}>Cleaner</option>
-                    <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+                    <option value="user" ${u.role==='user'?'selected':''}>User</option>
+                    <option value="cleaner" ${u.role==='cleaner'?'selected':''}>Cleaner</option>
+                    <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
                 </select>
             </div>
         `).join('');
     }
 
-    async function updateRole(userId, newRole) {
-        const res = await fetch(`/api/admin/users/${userId}/role`, {
+    async function updateRole(id, role) {
+        await fetch(`/api/admin/users/${id}/role`, {
             method: 'PUT',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + localStorage.getItem('token')
-            },
-            body: JSON.stringify({ role: newRole })
+            headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer '+localStorage.getItem('token')},
+            body: JSON.stringify({role})
         });
-        if(res.ok) alert("Роль обновлена");
+        alert("Роль обновлена");
     }
 
-    function parseJwt(t) { try { return JSON.parse(atob(t.split('.')[1])); } catch(e) { return null; } }
-
-    const token = localStorage.getItem('token');
-    if(token) {
-        const u = parseJwt(token);
+    if(localStorage.getItem('token')) {
         document.getElementById('auth-btn').innerText = 'Выйти';
         document.getElementById('auth-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('add-btn').style.display = 'block';
-        if(u.role === 'admin') {
-            document.getElementById('admin-btn').style.display = 'block';
-            loadUsers();
-        }
+        if(localStorage.getItem('role') === 'admin') document.getElementById('admin-btn').style.display = 'block';
     }
+    loadReports();
 </script>
 </body>
 </html>
