@@ -113,10 +113,10 @@
                 let html = `<b>${r.snow_type}</b><br>Статус: ${r.status}`;
                 if(r.photo_url) html += `<img src="${r.photo_url}" class="report-img" onclick="window.open('${r.photo_url}')">`;
 
-                if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
+                if(r.status === 'Ожидает уборки' && (role === 'cleaner' || role === 'admin')) {
                     html += `<hr><button class="btn btn-primary" style="width:100%; font-size:11px" onclick="markDone(${r.id})">Отметить как убрано</button>`;
                 }
-                if(r.status === 'cleaned' && role === 'admin') {
+                if(r.status === 'Убрано' && role === 'admin') {
                     html += `<hr><button class="btn btn-primary" style="width:100%; background:green; font-size:11px" onclick="verify(${r.id})">Подтвердить (ОК)</button>`;
                 }
                 if(role === 'admin') {
@@ -141,7 +141,7 @@
 
             if(type === 'login') {
                 const fd = new FormData();
-                fd.append('username', email); // Это важно для FastAPI OAuth2
+                fd.append('username', email); 
                 fd.append('password', password);
                 options.body = fd;
             }
