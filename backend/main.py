@@ -10,15 +10,14 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt
 
-# Конфигурация
+# Конфигурация путей
+UPLOAD_DIR = "/app/uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 SECRET_KEY = "SECRET_SECRET_123" 
 ALGORITHM = "HS256"
-
-# ПУТИ К ФАЙЛАМ
-UPLOAD_DIR = "/app/uploads" # Внутри контейнера путь всегда такой
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -48,15 +47,12 @@ class SnowReport(Base):
     done_photo_url = Column(String, nullable=True)
     author_email = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
 
-# Инициализация приложения
-app = FastAPI() # Убрали root_path отсюда для чистоты путей статики
+app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-# РАЗДАЧА ФОТО (Монтируем ПЕРЕД api роутами)
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
@@ -68,79 +64,51 @@ def get_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db))
     try:
         p = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         u = db.query(User).filter(User.email == p.get("sub")).first()
-        if not u: raise HTTPException(401)
         return u
     except: raise HTTPException(401)
 
-# API РОУТЫ (Все начинаются с /api вручную для надежности)
 @app.get("/api/reports")
 def get_reports(db: Session = Depends(get_db)):
-    return db.query(SnowReport).all()
+    return db.query(SnowReport).order_by(SnowReport.created_at.desc()).all()
 
 @app.post("/api/reports")
 async def create(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form(...), file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
     path = None
     if file:
         fname = f"before_{uuid.uuid4().hex}_{file.filename.replace(' ', '_')}"
-        file_path = os.path.join(UPLOAD_DIR, fname)
-        with open(file_path, "wb") as buffer:
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as buffer:
             buffer.write(await file.read())
-        path = f"/static_uploads/{fname}" # Прямой путь без /api/
-    
+        path = f"/static_uploads/{fname}"
     rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path, author_email=u.email)
-    db.add(rep)
-    db.commit()
-    return {"ok": True}
+    db.add(rep); db.commit(); return {"ok": True}
 
 @app.post("/api/reports/{r_id}/done")
 async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
     rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
     if file:
         fname = f"after_{uuid.uuid4().hex}_{file.filename.replace(' ', '_')}"
-        file_path = os.path.join(UPLOAD_DIR, fname)
-        with open(file_path, "wb") as buffer:
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as buffer:
             buffer.write(await file.read())
         rep.done_photo_url = f"/static_uploads/{fname}"
     rep.status = "cleaned"
-    db.commit()
-    return {"ok": True}
-
-@app.post("/api/reports/{r_id}/verify")
-def verify_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
-    if u.role != UserRole.admin: raise HTTPException(403)
-    db.query(SnowReport).filter(SnowReport.id == r_id).update({"status": "verified"})
-    db.commit()
-    return {"ok": True}
-
-@app.delete("/api/reports/{r_id}")
-def delete_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
-    if u.role != UserRole.admin: raise HTTPException(403)
-    db.query(SnowReport).filter(SnowReport.id == r_id).delete()
-    db.commit()
-    return {"ok": True}
+    rep.updated_at = datetime.utcnow() # Обновляем дату уборки
+    db.commit(); return {"ok": True}
 
 @app.post("/api/auth/register")
 def reg(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
     db.add(User(email=email, hashed_password=hashlib.sha256(password.encode()).hexdigest(), role=role))
-    db.commit()
-    return {"ok": True}
+    db.commit(); return {"ok": True}
 
 @app.post("/api/auth/login")
 def login(f: OAuth2PasswordRequestForm=Depends(), db: Session=Depends(get_db)):
     u = db.query(User).filter(User.email == f.username).first()
-    if not u or u.hashed_password != hashlib.sha256(f.password.encode()).hexdigest():
-        raise HTTPException(401)
+    if not u or u.hashed_password != hashlib.sha256(f.password.encode()).hexdigest(): raise HTTPException(401)
     t = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
     return {"access_token": t, "token_type": "bearer", "role": u.role.value, "email": u.email}
 
-@app.get("/api/admin/users")
-def get_users(db:Session=Depends(get_db), u:User=Depends(get_user)):
-    return db.query(User).all() if u.role == UserRole.admin else []
-
-@app.put("/api/admin/users/{u_id}/role")
-def up_role(u_id:int, data:dict, db:Session=Depends(get_db), u:User=Depends(get_user)):
-    if u.role == UserRole.admin:
-        db.query(User).filter(User.id == u_id).update({"role": data['role']})
-        db.commit()
-    return {"ok": True}
+@app.delete("/api/reports/{r_id}")
+def delete_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
+    if u.role != UserRole.admin: raise HTTPException(403)
+    db.query(SnowReport).filter(SnowReport.id == r_id).delete()
+    db.commit(); return {"ok": True}
