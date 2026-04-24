@@ -2,42 +2,45 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AntiSnow - Чистый город</title>
+    <title>AntiSnow - Карта</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        :root { --primary: #007bff; --success: #28a745; --danger: #dc3545; }
-        body { margin: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; background: #f0f2f5; }
+        :root { --primary: #007bff; }
+        body { margin: 0; font-family: sans-serif; overflow: hidden; }
         #map { height: 100vh; width: 100vw; }
         .top-nav { 
             position: absolute; top: 20px; left: 50%; transform: translateX(-50%); 
             z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; 
             box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px;
         }
-        .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: 600; }
+        .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: bold; transition: 0.3s; }
         .btn-primary { background: var(--primary); color: white; }
         .side-panel { 
             position: absolute; top: 0; right: -400px; width: 320px; height: 100vh; 
-            background: white; z-index: 2000; transition: 0.4s; padding: 25px;
+            background: white; z-index: 2000; transition: 0.4s; padding: 25px; box-shadow: -5px 0 20px rgba(0,0,0,0.1);
         }
         .side-panel.open { right: 0; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; box-sizing: border-box;}
     </style>
 </head>
 <body>
 
 <div class="top-nav">
-    <button class="btn btn-primary" onclick="locateUser()">📍 Где я?</button>
-    <button id="auth-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход</button>
-    <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Метка</button>
+    <button id="auth-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход / Регистрация</button>
+    <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Добавить метку</button>
+    <a href="/api/docs" class="btn" style="background: #eee; text-decoration: none; color: black;">API Docs</a>
 </div>
 
 <div id="map"></div>
 
 <div id="auth-panel" class="side-panel">
-    <h2>Вход</h2>
-    <input type="email" id="email" placeholder="Email" style="width:100%; margin-bottom:10px; padding:10px;">
-    <input type="password" id="password" placeholder="Пароль" style="width:100%; margin-bottom:10px; padding:10px;">
-    <button class="btn btn-primary" style="width:100%" onclick="handleAuth()">Войти</button>
+    <h2>Авторизация</h2>
+    <input type="email" id="email" placeholder="Email">
+    <input type="password" id="password" placeholder="Пароль">
+    <button class="btn btn-primary" style="width:100%" onclick="handleAuth('login')">Войти</button>
+    <p style="text-align: center; margin: 15px 0;">или</p>
+    <button class="btn" style="width:100%; background: #28a745; color: white;" onclick="handleAuth('register')">Зарегистрироваться</button>
+    <button class="btn" style="width:100%; margin-top:10px;" onclick="closePanels()">Закрыть</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -45,30 +48,46 @@
     const map = L.map('map', { zoomControl: false }).setView([61.6688, 50.8365], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    function togglePanel(id) {
-        document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open'));
-        document.getElementById(id).classList.add('open');
-    }
+    function togglePanel(id) { closePanels(); document.getElementById(id).classList.add('open'); }
+    function closePanels() { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); }
 
-    async function handleAuth() {
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
-        const fd = new FormData();
-        fd.append('username', email);
-        fd.append('password', password);
+    async function handleAuth(type) {
+        const e = document.getElementById('email').value;
+        const p = document.getElementById('password').value;
+        
+        // Пути теперь всегда начинаются с /api/
+        const url = type === 'register' 
+            ? `/api/auth/register?email=${e}&password=${p}` 
+            : `/api/auth/login`;
+
+        let body = null;
+        if(type === 'login') {
+            body = new FormData();
+            body.append('username', e);
+            body.append('password', p);
+        }
 
         try {
-            const res = await fetch('/api/auth/login', { method: 'POST', body: fd });
-            if (res.ok) {
-                const data = await res.json();
-                localStorage.setItem('token', data.access_token);
-                location.reload();
-            } else { alert("Ошибка входа"); }
-        } catch (e) { alert("Сервер недоступен"); }
+            const res = await fetch(url, { method: 'POST', body: body });
+            if(res.ok) {
+                if(type === 'login') {
+                    const data = await res.json();
+                    localStorage.setItem('token', data.access_token);
+                    location.reload();
+                } else {
+                    alert("Регистрация успешна! Теперь войдите.");
+                }
+            } else {
+                alert("Ошибка. Проверьте данные.");
+            }
+        } catch(err) {
+            alert("Ошибка соединения с сервером");
+        }
     }
 
-    if (localStorage.getItem('token')) {
+    if(localStorage.getItem('token')) {
         document.getElementById('auth-btn').innerText = 'Выход';
+        document.getElementById('auth-btn').onclick = () => { localStorage.clear(); location.reload(); };
         document.getElementById('add-btn').style.display = 'block';
     }
 </script>
