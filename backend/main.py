@@ -14,7 +14,7 @@ UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
-SECRET_KEY = "ULTRA_SECRET_2026" 
+SECRET_KEY = "FINAL_VER_2026" 
 ALGORITHM = "HS256"
 
 engine = create_engine(DATABASE_URL)
@@ -30,16 +30,17 @@ class UserRole(str, Enum):
 class SnowReport(Base):
     __tablename__ = "reports"
     id = Column(Integer, primary_key=True, index=True)
-    lat = Column(Float); lon = Column(Float)
+    lat = Column(Float)
+    lon = Column(Float)
     snow_type = Column(String)
-    status = Column(String, default="pending") # pending, cleaned, verified
+    description = Column(String, nullable=True) # НОВОЕ ПОЛЕ
+    status = Column(String, default="pending") 
     photo_url = Column(String, nullable=True)
     done_photo_url = Column(String, nullable=True)
     author_email = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
-# Модель User остается прежней...
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -67,13 +68,26 @@ def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).order_by(SnowReport.created_at.desc()).all()
 
 @app.post("/api/reports")
-async def create(lat:float=Form(...), lon:float=Form(...), snow_type:str=Form(...), file:UploadFile=File(None), db:Session=Depends(get_db), u:User=Depends(get_current_user)):
+async def create(
+    lat: float = Form(...), 
+    lon: float = Form(...), 
+    snow_type: str = Form(...), 
+    description: str = Form(None), # ПРИЕМ ОПИСАНИЯ
+    file: UploadFile = File(None), 
+    db: Session = Depends(get_db), 
+    u: User = Depends(get_current_user)
+):
     p_url = None
     if file:
         fname = f"{uuid.uuid4().hex}.jpg"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         p_url = f"/static_uploads/{fname}"
-    rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=p_url, author_email=u.email if u else "Гость")
+    
+    rep = SnowReport(
+        lat=lat, lon=lon, snow_type=snow_type, 
+        description=description, photo_url=p_url, 
+        author_email=u.email if u else "Гость"
+    )
     db.add(rep); db.commit(); return {"ok": True}
 
 @app.post("/api/reports/{r_id}/done")
@@ -100,7 +114,6 @@ def delete_rep(r_id:int, db:Session=Depends(get_db), u:User=Depends(get_current_
     db.query(SnowReport).filter(SnowReport.id == r_id).delete()
     db.commit(); return {"ok": True}
 
-# Стандартные роуты auth и admin/users остаются без изменений...
 @app.post("/api/auth/register")
 def reg(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
