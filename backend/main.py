@@ -10,13 +10,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt
 
-# 1. ПОДГОТОВКА ОКРУЖЕНИЯ
+# Конфигурация
 UPLOAD_DIR = "/app/uploads"
-if not os.path.exists(UPLOAD_DIR):
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
-SECRET_KEY = "SECRET_SECRET_123" 
+SECRET_KEY = "SUPER_SECRET_KEY_999" 
 ALGORITHM = "HS256"
 
 engine = create_engine(DATABASE_URL)
@@ -24,7 +23,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-# 2. МОДЕЛИ
 class UserRole(str, Enum):
     user = "user"
     cleaner = "cleaner"
@@ -59,60 +57,60 @@ def get_db():
     try: yield db
     finally: db.close()
 
-# 3. РОУТЫ API
+def get_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    try:
+        p = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        u = db.query(User).filter(User.email == p.get("sub")).first()
+        return u
+    except: return None
+
+# API
 @app.get("/api/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).order_by(SnowReport.created_at.desc()).all()
 
 @app.post("/api/reports")
-async def create_report(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form(...), file: UploadFile=File(None), db: Session=Depends(get_db)):
-    p_url = None
+async def create(lat:float=Form(...), lon:float=Form(...), snow_type:str=Form(...), file:UploadFile=File(None), db:Session=Depends(get_db), u:User=Depends(get_user)):
+    path = None
     if file:
         fname = f"b_{uuid.uuid4().hex}.jpg"
-        fpath = os.path.join(UPLOAD_DIR, fname)
-        with open(fpath, "wb") as buf:
-            buf.write(await file.read())
-        p_url = f"/static_uploads/{fname}"
-    
-    rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=p_url)
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
+        path = f"/static_uploads/{fname}"
+    rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path, author_email=u.email if u else "Аноним")
     db.add(rep); db.commit(); return {"ok": True}
 
 @app.post("/api/reports/{r_id}/done")
-async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(get_db)):
+async def mark_done(r_id:int, file:UploadFile=File(None), db:Session=Depends(get_db)):
     rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
-    if not rep: raise HTTPException(404)
     if file:
         fname = f"a_{uuid.uuid4().hex}.jpg"
-        with open(os.path.join(UPLOAD_DIR, fname), "wb") as buf:
-            buf.write(await file.read())
+        with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         rep.done_photo_url = f"/static_uploads/{fname}"
-    rep.status = "cleaned"
-    rep.updated_at = datetime.utcnow()
+    rep.status = "cleaned"; rep.updated_at = datetime.utcnow()
     db.commit(); return {"ok": True}
 
 @app.post("/api/auth/register")
-def register(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
+def reg(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
-    hashed = hashlib.sha256(password.encode()).hexdigest()
-    db.add(User(email=email, hashed_password=hashed, role=role))
+    db.add(User(email=email, hashed_password=hashlib.sha256(password.encode()).hexdigest(), role=role))
     db.commit(); return {"ok": True}
 
 @app.post("/api/auth/login")
-def login(form: OAuth2PasswordRequestForm=Depends(), db: Session=Depends(get_db)):
-    u = db.query(User).filter(User.email == form.username).first()
-    if not u or u.hashed_password != hashlib.sha256(form.password.encode()).hexdigest():
-        raise HTTPException(401)
-    token = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
-    return {"access_token": token, "role": u.role.value, "email": u.email}
+def login(f:OAuth2PasswordRequestForm=Depends(), db:Session=Depends(get_db)):
+    u = db.query(User).filter(User.email == f.username).first()
+    if not u or u.hashed_password != hashlib.sha256(f.password.encode()).hexdigest(): raise HTTPException(401)
+    t = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
+    return {"access_token": t, "role": u.role.value, "email": u.email}
 
 @app.get("/api/admin/users")
-def list_users(db: Session=Depends(get_db)):
+def adm_users(db:Session=Depends(get_db), u:User=Depends(get_user)):
+    if not u or u.role != UserRole.admin: raise HTTPException(403)
     return db.query(User).all()
 
 @app.delete("/api/reports/{r_id}")
-def delete_rep(r_id: int, db: Session=Depends(get_db)):
+def del_rep(r_id:int, db:Session=Depends(get_db), u:User=Depends(get_user)):
+    if not u or u.role != UserRole.admin: raise HTTPException(403)
     db.query(SnowReport).filter(SnowReport.id == r_id).delete()
     db.commit(); return {"ok": True}
 
-# ВАЖНО: Монтируем статику ПОСЛЕ всех API роутов
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
