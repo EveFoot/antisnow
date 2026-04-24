@@ -1,19 +1,23 @@
 import os, hashlib, uuid
-from datetime import datetime  # Добавили для времени
+from datetime import datetime
 from enum import Enum
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from jose import jwt
+from jose import jwt, JWTError
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
+SECRET_KEY = "SECRET_SECRET_123" # В реальном проекте вынеси в переменные окружения
+ALGORITHM = "HS256"
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 class UserRole(str, Enum):
     user = "user"
@@ -35,7 +39,6 @@ class SnowReport(Base):
     snow_type = Column(String)
     status = Column(String, default="pending") 
     photo_url = Column(String, nullable=True)
-    # НОВЫЕ ПОЛЯ
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -52,21 +55,34 @@ def get_db():
     try: yield db
     finally: db.close()
 
+# Функция проверки токена
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None: raise HTTPException(401)
+    except JWTError: raise HTTPException(401)
+    user = db.query(User).filter(User.email == email).first()
+    if user is None: raise HTTPException(401)
+    return user
+
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
 
+# ТЕПЕРЬ ТРЕБУЕТ get_current_user
 @app.post("/reports")
 async def create_report(
     lat: float = Form(...), lon: float = Form(...), snow_type: str = Form(...),
-    file: UploadFile = File(None), db: Session = Depends(get_db)
+    file: UploadFile = File(None), 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user) 
 ):
     path = None
     if file:
         fname = f"{uuid.uuid4()}.{file.filename.split('.')[-1]}"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         path = f"/api/static_uploads/{fname}"
-    # Время создается автоматически через default=datetime.utcnow
     db.add(SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path))
     db.commit()
     return {"ok": True}
@@ -80,7 +96,7 @@ async def mark_as_done(report_id: int, file: UploadFile = File(None), db: Sessio
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         report.photo_url = f"/api/static_uploads/{fname}"
     report.status = "cleaned"
-    report.updated_at = datetime.utcnow() # Обновляем время при уборке
+    report.updated_at = datetime.utcnow()
     db.commit()
     return {"ok": True}
 
@@ -99,8 +115,6 @@ def delete_report(report_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"ok": True}
 
-# --- ПОЛЬЗОВАТЕЛИ (БЕЗ ИЗМЕНЕНИЙ) ---
-
 @app.post("/auth/register")
 def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
@@ -114,7 +128,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     user = db.query(User).filter(User.email == form_data.username).first()
     hashed = hashlib.sha256(form_data.password.encode()).hexdigest()
     if not user or user.hashed_password != hashed: raise HTTPException(401)
-    token = jwt.encode({"sub": user.email, "role": user.role.value}, "SECRET", algorithm="HS256")
+    token = jwt.encode({"sub": user.email, "role": user.role.value}, SECRET_KEY, algorithm=ALGORITHM)
     return {"access_token": token, "token_type": "bearer", "role": user.role.value}
 
 @app.get("/admin/users")
