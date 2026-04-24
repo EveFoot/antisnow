@@ -2,119 +2,107 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow — Мониторинг</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AntiSnow | Карта</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        :root { --primary: #007AFF; --bg: #F2F2F7; --card: #FFFFFF; --text: #1C1C1E; }
-        body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+        :root { --primary: #007AFF; --danger: #FF3B30; }
+        body { margin: 0; font-family: -apple-system, sans-serif; background: #F2F2F7; }
         #map { height: 100vh; width: 100vw; z-index: 1; }
-
-        /* Верхняя панель */
-        .top-bar { 
-            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); 
-            z-index: 1000; background: rgba(255,255,255,0.85); backdrop-filter: blur(10px);
-            padding: 8px 20px; border-radius: 40px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            display: flex; align-items: center; gap: 15px; border: 0.5px solid rgba(0,0,0,0.1);
-        }
-        .btn { border: none; padding: 10px 18px; border-radius: 20px; cursor: pointer; font-weight: 600; font-size: 14px; transition: 0.2s; }
-        .btn-blue { background: var(--primary); color: white; }
-        .btn-ghost { background: transparent; color: var(--primary); }
-
-        /* Боковые панели */
-        .side-panel { 
-            position: fixed; top: 0; right: -400px; width: 340px; height: 100vh; 
-            background: rgba(255,255,255,0.95); backdrop-filter: blur(15px);
-            z-index: 2000; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
-            padding: 30px; box-shadow: -10px 0 30px rgba(0,0,0,0.05); overflow-y: auto;
-        }
-        .side-panel.open { right: 0; }
         
-        /* Карточка попапа */
-        .report-popup { min-width: 260px; }
-        .photo-grid { display: flex; gap: 10px; margin: 12px 0; }
-        .photo-item { flex: 1; text-align: center; }
-        .photo-item img { 
-            width: 100%; height: 100px; border-radius: 12px; object-fit: cover; 
-            background: #eee; cursor: pointer; border: 1px solid #f0f0f0;
+        .header { 
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); 
+            z-index: 1000; background: white; padding: 10px 25px; border-radius: 30px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; gap: 15px; align-items: center;
         }
-        .photo-item span { font-size: 10px; color: #8E8E93; display: block; margin-top: 4px; }
 
-        input, select { width: 100%; padding: 14px; margin: 10px 0; border: none; background: #E9E9EB; border-radius: 12px; box-sizing: border-box; }
-        .user-row { padding: 15px 0; border-bottom: 1px solid #E5E5EA; display: flex; justify-content: space-between; align-items: center; }
+        .side { 
+            position: fixed; top: 0; right: -360px; width: 320px; height: 100vh; 
+            background: white; z-index: 2000; transition: 0.3s; padding: 25px; 
+            box-shadow: -5px 0 20px rgba(0,0,0,0.05); 
+        }
+        .side.open { right: 0; }
+
+        .btn { border: none; padding: 10px 20px; border-radius: 12px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-dark { background: #1C1C1E; color: white; }
+        
+        .photo-card { width: 100%; height: 120px; object-fit: cover; border-radius: 10px; border: 1px solid #eee; margin-top: 5px; cursor: zoom-in; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border-radius: 10px; border: 1px solid #ddd; box-sizing: border-box; }
+        .user-item { padding: 10px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; }
     </style>
 </head>
 <body>
 
-<div class="top-bar">
-    <div id="user-status" style="font-size:12px; font-weight:700">AntiSnow</div>
-    <button id="auth-btn" class="btn btn-ghost" onclick="openPanel('auth-p')">Войти</button>
-    <button id="admin-btn" class="btn" style="background:#000; color:#fff; display:none" onclick="loadAdmin()">Админка</button>
+<div class="header">
+    <span id="user-label" style="font-weight:bold; font-size:14px">AntiSnow</span>
+    <button class="btn" onclick="toggle('auth-p')">Аккаунт</button>
+    <button id="adm-btn" class="btn btn-dark" style="display:none" onclick="openAdmin()">Админка</button>
 </div>
 
 <div id="map"></div>
 
-<div id="report-p" class="side-panel">
-    <h2 style="margin-top:0">Новое событие</h2>
+<div id="auth-p" class="side">
+    <h2>Профиль</h2>
+    <div id="login-fields">
+        <input type="email" id="email" placeholder="Email">
+        <input type="password" id="pass" placeholder="Пароль">
+        <button class="btn btn-primary" style="width:100%" onclick="auth('login')">Войти</button>
+        <button class="btn" style="width:100%; margin-top:8px" onclick="auth('reg')">Регистрация</button>
+    </div>
+    <button id="logout-btn" class="btn" style="width:100%; margin-top:40px; background:#f0f0f0; color:red; display:none" onclick="localStorage.clear();location.reload()">Выйти</button>
+</div>
+
+<div id="report-p" class="side">
+    <h2>Новая метка</h2>
     <input type="hidden" id="lat"><input type="hidden" id="lon">
-    <p style="font-size:13px; color:#666">Выберите тип загрязнения и прикрепите фото.</p>
+    <label>Тип проблемы:</label>
     <select id="stype">
         <option>Снежные завалы</option>
-        <option>Гололедица</option>
-        <option>Слякоть / Каша</option>
+        <option>Гололед</option>
+        <option>Слякоть</option>
     </select>
-    <input type="file" id="file-in" accept="image/*">
-    <button class="btn btn-blue" style="width:100%; margin-top:15px" onclick="sendReport()">Опубликовать</button>
-    <button class="btn btn-ghost" style="width:100%; margin-top:10px" onclick="closePanels()">Отмена</button>
+    <label>Фотография:</label>
+    <input type="file" id="file-in">
+    <button class="btn btn-primary" style="width:100%; margin-top:10px" onclick="sendReport()">Создать метку</button>
 </div>
 
-<div id="auth-p" class="side-panel">
-    <h2 style="margin-top:0">Аккаунт</h2>
-    <input type="email" id="email" placeholder="Email">
-    <input type="password" id="pass" placeholder="Пароль">
-    <button class="btn btn-blue" style="width:100%" onclick="auth('login')">Войти</button>
-    <button class="btn btn-ghost" style="width:100%; margin-top:10px" onclick="auth('reg')">Зарегистрироваться</button>
-    <button id="logout-btn" class="btn" style="width:100%; margin-top:40px; background:#FF3B30; color:white; display:none" onclick="logout()">Выйти из системы</button>
-</div>
-
-<div id="admin-p" class="side-panel">
-    <h2 style="margin-top:0">Администрирование</h2>
-    <div id="u-list"></div>
-    <button class="btn btn-ghost" style="width:100%; margin-top:20px" onclick="closePanels()">Закрыть</button>
+<div id="admin-p" class="side">
+    <h2>Управление</h2>
+    <div id="user-list"></div>
+    <button class="btn" style="width:100%; margin-top:20px" onclick="toggle('admin-p')">Закрыть</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-    const map = L.map('map', { zoomControl: false }).setView([61.6688, 50.8365], 13);
+    const map = L.map('map', {zoomControl: false}).setView([61.6688, 50.8365], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    function openPanel(id) { closePanels(); document.getElementById(id).classList.add('open'); }
-    function closePanels() { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); }
-    const fmt = (d) => d ? new Date(d).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '--:--';
+    function toggle(id) { 
+        document.querySelectorAll('.side').forEach(s => s.classList.remove('open'));
+        document.getElementById(id).classList.add('open'); 
+    }
 
     map.on('click', e => {
-        if(!localStorage.getItem('token')) return openPanel('auth-p');
+        if(!localStorage.getItem('token')) return toggle('auth-p');
         document.getElementById('lat').value = e.latlng.lat;
         document.getElementById('lon').value = e.latlng.lng;
-        openPanel('report-p');
+        toggle('report-p');
     });
 
     async function auth(t) {
         const e = document.getElementById('email').value, p = document.getElementById('pass').value;
-        const fd = new FormData(); if(t === 'login'){ fd.append('username', e); fd.append('password', p); }
-        const res = await fetch(t === 'reg' ? `/api/auth/register?email=${e}&password=${p}` : '/api/auth/login', { method: 'POST', body: fd });
+        const fd = new FormData(); if(t==='login'){ fd.append('username', e); fd.append('password', p); }
+        const res = await fetch(t==='reg'?`/api/auth/register?email=${e}&password=${p}`:'/api/auth/login', {method:'POST', body:fd});
         if(res.ok) {
             const d = await res.json();
-            if(t === 'login') {
+            if(t==='login'){
                 localStorage.setItem('token', d.access_token);
                 localStorage.setItem('role', d.role);
                 localStorage.setItem('email', d.email);
                 location.reload();
-            } else alert("Успешно! Теперь войдите.");
-        } else alert("Ошибка входа.");
+            } else alert("Успех! Входите.");
+        }
     }
-
-    function logout() { localStorage.clear(); location.reload(); }
 
     async function sendReport() {
         const fd = new FormData();
@@ -123,10 +111,10 @@
         fd.append('snow_type', document.getElementById('stype').value);
         const f = document.getElementById('file-in').files[0];
         if(f) fd.append('file', f);
-        await fetch('/api/reports', { 
-            method: 'POST', 
-            headers: {'Authorization': 'Bearer ' + localStorage.getItem('token')},
-            body: fd 
+        await fetch('/api/reports', {
+            method:'POST', 
+            headers:{'Authorization': 'Bearer '+localStorage.getItem('token')},
+            body:fd
         });
         location.reload();
     }
@@ -138,70 +126,67 @@
 
         data.forEach(r => {
             const icon = L.icon({
-                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${r.status === 'pending' ? 'red' : 'blue'}.png`,
+                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${r.status==='pending'?'red':'blue'}.png`,
                 iconSize: [25, 41], iconAnchor: [12, 41]
             });
-            
             const m = L.marker([r.lat, r.lon], {icon}).addTo(map);
-            let h = `<div class="report-popup">
-                <b style="font-size:14px">${r.snow_type}</b><br>
-                <span style="font-size:10px; color:#8E8E93">👤 ${r.author_email || 'Аноним'}</span>
-                <div class="photo-grid">
-                    <div class="photo-item">
-                        <span>ДО</span>
-                        ${r.photo_url ? `<img src="${r.photo_url}" onclick="window.open('${r.photo_url}', '_blank')">` : '<div style="height:100px;background:#f0f0f0;border-radius:12px"></div>'}
+            
+            let h = `<div style="width:220px">
+                <b style="font-size:16px">${r.snow_type}</b><br>
+                <div style="display:flex; gap:8px; margin:10px 0">
+                    <div style="flex:1">
+                        <small>До</small><br>
+                        ${r.photo_url ? `<img src="${r.photo_url}" class="photo-card" onclick="window.open('${r.photo_url}', '_blank')">` : '—'}
                     </div>
-                    <div class="photo-item">
-                        <span>ПОСЛЕ</span>
-                        ${r.done_photo_url ? `<img src="${r.done_photo_url}" onclick="window.open('${r.done_photo_url}', '_blank')">` : '<div style="height:100px;background:#f0f0f0;border-radius:12px"></div>'}
+                    <div style="flex:1">
+                        <small>После</small><br>
+                        ${r.done_photo_url ? `<img src="${r.done_photo_url}" class="photo-card" onclick="window.open('${r.done_photo_url}', '_blank')">` : '—'}
                     </div>
                 </div>`;
             
             if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
-                h += `<input type="file" id="f-${r.id}" style="font-size:10px; margin-top:10px">
-                      <button class="btn btn-blue" style="width:100%; margin-top:5px; padding:5px" onclick="markDone(${r.id})">Готово</button>`;
+                h += `<input type="file" id="f-${r.id}" style="font-size:10px">
+                      <button class="btn btn-primary" style="width:100%; margin-top:5px; padding:5px" onclick="setDone(${id=r.id})">Убрано</button>`;
             }
-            if(role === 'admin') h += `<button onclick="delRep(${r.id})" style="width:100%; background:none; border:none; color:#FF3B30; font-size:11px; margin-top:10px; cursor:pointer">Удалить метку</button>`;
+            if(role === 'admin') h += `<button onclick="del(${r.id})" style="color:red; background:none; border:none; width:100%; cursor:pointer; margin-top:8px">Удалить</button>`;
             
-            h += `</div>`;
             m.bindPopup(h);
         });
     }
 
-    async function markDone(id) {
+    async function setDone(id) {
         const fd = new FormData(); const f = document.getElementById(`f-${id}`).files[0];
         if(f) fd.append('file', f);
-        await fetch(`/api/reports/${id}/done`, { method: 'POST', body: fd });
+        await fetch(`/api/reports/${id}/done`, {method:'POST', body:fd});
         location.reload();
     }
 
-    async function delRep(id) {
-        if(!confirm('Удалить?')) return;
-        await fetch(`/api/reports/${id}`, { 
-            method: 'DELETE', 
-            headers: {'Authorization': 'Bearer ' + localStorage.getItem('token')}
-        });
-        location.reload();
+    async function del(id) {
+        if(confirm('Удалить?')) {
+            await fetch(`/api/reports/${id}`, {method:'DELETE', headers:{'Authorization': 'Bearer '+localStorage.getItem('token')}});
+            location.reload();
+        }
     }
 
-    async function loadAdmin() {
-        openPanel('admin-p');
-        const res = await fetch('/api/admin/users', { headers: {'Authorization': 'Bearer ' + localStorage.getItem('token')} });
+    async function openAdmin() {
+        toggle('admin-p');
+        const res = await fetch('/api/admin/users', {headers:{'Authorization': 'Bearer '+localStorage.getItem('token')}});
         const users = await res.json();
-        document.getElementById('u-list').innerHTML = users.map(u => `
-            <div class="user-row">
+        document.getElementById('user-list').innerHTML = users.map(u => `
+            <div class="user-item">
                 <span>${u.email}</span>
-                <span style="font-size:10px; background:#E9E9EB; padding:4px 8px; border-radius:10px">${u.role}</span>
+                <small>${u.role}</small>
             </div>
         `).join('');
     }
 
     // Старт
-    if(localStorage.getItem('token')) {
-        document.getElementById('user-status').innerText = localStorage.getItem('email');
-        document.getElementById('auth-btn').innerText = 'Аккаунт';
+    const token = localStorage.getItem('token');
+    if(token) {
+        document.getElementById('user-label').innerText = localStorage.getItem('email');
+        document.getElementById('login-fields').style.display = 'none';
         document.getElementById('logout-btn').style.display = 'block';
-        if(localStorage.getItem('role') === 'admin') document.getElementById('admin-btn').style.display = 'block';
+        if(localStorage.getItem('role') === 'admin') document.getElementById('adm-btn').style.display = 'block';
     }
     loadReports();
 </script>

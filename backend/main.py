@@ -10,12 +10,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt
 
-# Конфигурация
+# Конфиг папок
 UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
-SECRET_KEY = "SUPER_SECRET_KEY_999" 
+SECRET_KEY = "TOKEN_KEY_2026" 
 ALGORITHM = "HS256"
 
 engine = create_engine(DATABASE_URL)
@@ -57,38 +57,38 @@ def get_db():
     try: yield db
     finally: db.close()
 
-def get_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
         p = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        u = db.query(User).filter(User.email == p.get("sub")).first()
-        return u
+        return db.query(User).filter(User.email == p.get("sub")).first()
     except: return None
 
-# API
+# API Метки
 @app.get("/api/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).order_by(SnowReport.created_at.desc()).all()
 
 @app.post("/api/reports")
-async def create(lat:float=Form(...), lon:float=Form(...), snow_type:str=Form(...), file:UploadFile=File(None), db:Session=Depends(get_db), u:User=Depends(get_user)):
-    path = None
+async def create(lat:float=Form(...), lon:float=Form(...), snow_type:str=Form(...), file:UploadFile=File(None), db:Session=Depends(get_db), u:User=Depends(get_current_user)):
+    p_url = None
     if file:
-        fname = f"b_{uuid.uuid4().hex}.jpg"
+        fname = f"{uuid.uuid4().hex}.jpg"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
-        path = f"/static_uploads/{fname}"
-    rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path, author_email=u.email if u else "Аноним")
+        p_url = f"/static_uploads/{fname}"
+    rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=p_url, author_email=u.email if u else "Гость")
     db.add(rep); db.commit(); return {"ok": True}
 
 @app.post("/api/reports/{r_id}/done")
 async def mark_done(r_id:int, file:UploadFile=File(None), db:Session=Depends(get_db)):
     rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
     if file:
-        fname = f"a_{uuid.uuid4().hex}.jpg"
+        fname = f"done_{uuid.uuid4().hex}.jpg"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         rep.done_photo_url = f"/static_uploads/{fname}"
     rep.status = "cleaned"; rep.updated_at = datetime.utcnow()
     db.commit(); return {"ok": True}
 
+# API Юзеры
 @app.post("/api/auth/register")
 def reg(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
@@ -103,14 +103,15 @@ def login(f:OAuth2PasswordRequestForm=Depends(), db:Session=Depends(get_db)):
     return {"access_token": t, "role": u.role.value, "email": u.email}
 
 @app.get("/api/admin/users")
-def adm_users(db:Session=Depends(get_db), u:User=Depends(get_user)):
+def get_users(db:Session=Depends(get_db), u:User=Depends(get_current_user)):
     if not u or u.role != UserRole.admin: raise HTTPException(403)
     return db.query(User).all()
 
 @app.delete("/api/reports/{r_id}")
-def del_rep(r_id:int, db:Session=Depends(get_db), u:User=Depends(get_user)):
+def delete_rep(r_id:int, db:Session=Depends(get_db), u:User=Depends(get_current_user)):
     if not u or u.role != UserRole.admin: raise HTTPException(403)
     db.query(SnowReport).filter(SnowReport.id == r_id).delete()
     db.commit(); return {"ok": True}
 
+# Статика (ФОТО)
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
