@@ -37,8 +37,10 @@ class SnowReport(Base):
     lat = Column(Float)
     lon = Column(Float)
     snow_type = Column(String)
-    status = Column(String, default="pending") # pending, cleaned, verified
-    photo_url = Column(String, nullable=True)
+    status = Column(String, default="pending") 
+    photo_url = Column(String, nullable=True)      # Фото "ДО"
+    done_photo_url = Column(String, nullable=True) # Фото "ПОСЛЕ"
+    author_email = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -69,10 +71,10 @@ def get_reports(db: Session = Depends(get_db)):
 async def create(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form(...), file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
     path = None
     if file:
-        fname = f"{uuid.uuid4()}.{file.filename.split('.')[-1]}"
+        fname = f"before_{uuid.uuid4()}_{file.filename}"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         path = f"/api/static_uploads/{fname}"
-    db.add(SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path))
+    db.add(SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path, author_email=u.email))
     db.commit()
     return {"ok": True}
 
@@ -80,9 +82,9 @@ async def create(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form
 async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
     rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
     if file:
-        fname = f"done_{uuid.uuid4()}.{file.filename.split('.')[-1]}"
+        fname = f"after_{uuid.uuid4()}_{file.filename}"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
-        rep.photo_url = f"/api/static_uploads/{fname}"
+        rep.done_photo_url = f"/api/static_uploads/{fname}"
     rep.status = "cleaned"
     rep.updated_at = datetime.utcnow()
     db.commit()
@@ -92,15 +94,13 @@ async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(
 def verify_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
     if u.role != UserRole.admin: raise HTTPException(403)
     db.query(SnowReport).filter(SnowReport.id == r_id).update({"status": "verified", "updated_at": datetime.utcnow()})
-    db.commit()
-    return {"ok": True}
+    db.commit(); return {"ok": True}
 
 @app.delete("/reports/{r_id}")
 def delete_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
     if u.role != UserRole.admin: raise HTTPException(403)
     db.query(SnowReport).filter(SnowReport.id == r_id).delete()
-    db.commit()
-    return {"ok": True}
+    db.commit(); return {"ok": True}
 
 @app.post("/auth/register")
 def reg(email:str=Query(...), password:str=Query(...), db:Session=Depends(get_db)):
@@ -113,7 +113,7 @@ def login(f: OAuth2PasswordRequestForm=Depends(), db: Session=Depends(get_db)):
     u = db.query(User).filter(User.email == f.username).first()
     if not u or u.hashed_password != hashlib.sha256(f.password.encode()).hexdigest(): raise HTTPException(401)
     t = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
-    return {"access_token": t, "token_type": "bearer", "role": u.role.value}
+    return {"access_token": t, "token_type": "bearer", "role": u.role.value, "email": u.email}
 
 @app.get("/admin/users")
 def get_users(db:Session=Depends(get_db), u:User=Depends(get_user)):
