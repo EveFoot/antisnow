@@ -2,38 +2,56 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow - Маршруты на карте</title>
+    <title>AntiSnow - Чистый интерфейс</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
-    
     <style>
-        body { margin: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
-        #map { height: 100vh; width: 100vw; }
-        .top-nav { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px; }
-        .btn { padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; font-size: 13px; transition: 0.2s; }
-        .btn:active { transform: scale(0.95); }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; background: #f4f7f6; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+
+        /* Верхняя панель */
+        .top-nav { 
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%); 
+            z-index: 1000; background: white; padding: 10px 20px; border-radius: 50px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; gap: 10px; 
+        }
+
+        .btn { padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.3s ease; }
         .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
         .btn-geo { background: #28a745; color: white; }
         .btn-danger { background: #dc3545; color: white; }
-        .side-panel { position: absolute; top: 0; right: -400px; width: 350px; height: 100vh; background: white; z-index: 1001; transition: 0.4s; padding: 25px; box-shadow: -5px 0 15px rgba(0,0,0,0.1); overflow-y: auto; }
+
+        /* Боковые панели */
+        .side-panel { 
+            position: absolute; top: 0; right: -450px; width: 350px; height: 100vh; 
+            background: white; z-index: 2000; transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1); 
+            padding: 30px; box-shadow: -5px 0 25px rgba(0,0,0,0.15); overflow-y: auto; 
+            display: block; /* Элемент есть в DOM, но вынесен за экран */
+        }
         .side-panel.open { right: 0; }
-        .close-btn { float: right; cursor: pointer; font-size: 24px; }
-        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
-        .report-img { width: 100%; border-radius: 8px; margin: 10px 0; border: 1px solid #ddd; }
-        .time-info { font-size: 11px; color: #666; margin-bottom: 5px; }
-        .route-btn { background: #6f42c1; color: white; width: 100%; margin-top: 5px; }
-        /* Скрываем текстовую инструкцию маршрута, чтобы не перекрывала карту */
-        .leaflet-routing-container { display: none; }
+        
+        .close-btn { float: right; cursor: pointer; font-size: 28px; color: #aaa; transition: 0.2s; }
+        .close-btn:hover { color: #333; }
+
+        input, select { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 10px; outline: none; }
+        input:focus { border-color: #007bff; }
+
+        .report-img { width: 100%; border-radius: 12px; margin: 12px 0; border: 1px solid #eee; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .time-info { font-size: 11px; color: #888; margin-bottom: 4px; }
+        .route-btn { background: #6f42c1; color: white; width: 100%; margin-top: 8px; }
+        
+        .leaflet-routing-container { display: none; } /* Прячем текстовый список поворотов */
     </style>
 </head>
 <body>
 
     <div class="top-nav">
         <button class="btn btn-geo" onclick="locateUser()">📍 Где я?</button>
-        <button id="clear-route" class="btn btn-danger" style="display:none" onclick="clearRoute()">Удалить маршрут</button>
+        <button id="clear-route" class="btn btn-danger" style="display:none" onclick="clearRoute()">Сбросить путь</button>
         <button id="auth-btn" class="btn btn-primary" onclick="togglePanel('auth-panel')">Вход</button>
-        <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Добавить метку</button>
-        <button id="admin-link" class="btn btn-primary" style="background:#dc3545; display:none" onclick="openAdminPanel()">Админка</button>
+        <button id="add-btn" class="btn btn-primary" style="display:none" onclick="togglePanel('report-panel')">Метка</button>
+        <button id="admin-link" class="btn btn-danger" style="display:none" onclick="openAdminPanel()">Админка</button>
     </div>
 
     <div id="map"></div>
@@ -41,27 +59,31 @@
     <div id="report-panel" class="side-panel">
         <span class="close-btn" onclick="closePanels()">×</span>
         <h2>Новая метка</h2>
+        <p style="color: #666; font-size: 14px;">Укажите тип проблемы и прикрепите фото (по желанию)</p>
         <input type="text" id="lat" placeholder="Широта" readonly>
         <input type="text" id="lon" placeholder="Долгота" readonly>
         <select id="snow-type">
-            <option>Снежная каша</option><option>Гололед</option><option>Сугробы</option>
+            <option>Снежная каша</option>
+            <option>Гололед</option>
+            <option>Большие сугробы</option>
+            <option>Не почищен тротуар</option>
         </select>
         <input type="file" id="file-in" accept="image/*">
-        <button class="btn btn-primary" style="width:100%" onclick="submitReport()">Отправить</button>
+        <button class="btn btn-primary" style="width:100%; margin-top: 15px;" onclick="submitReport()">Отправить отчет</button>
     </div>
 
     <div id="auth-panel" class="side-panel">
         <span class="close-btn" onclick="closePanels()">×</span>
-        <h2>Авторизация</h2>
-        <input type="email" id="email" placeholder="Email">
+        <h2 id="auth-title">Добро пожаловать</h2>
+        <input type="email" id="email" placeholder="Ваш Email">
         <input type="password" id="password" placeholder="Пароль">
-        <button class="btn btn-primary" style="width:100%" onclick="handleAuth('login')">Войти</button>
-        <button class="btn" style="width:100%; margin-top:10px" onclick="handleAuth('register')">Регистрация</button>
+        <button class="btn btn-primary" style="width:100%; margin-top: 10px;" onclick="handleAuth('login')">Войти</button>
+        <button class="btn" style="width:100%; margin-top:10px; background: #eee;" onclick="handleAuth('register')">Создать аккаунт</button>
     </div>
 
     <div id="admin-panel" class="side-panel">
         <span class="close-btn" onclick="closePanels()">×</span>
-        <h2>Пользователи</h2>
+        <h2>Управление доступом</h2>
         <div id="users-list"></div>
     </div>
 
@@ -69,8 +91,10 @@
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
     
     <script>
-        const map = L.map('map').setView([61.6688, 50.8365], 13);
+        // Инициализация карты
+        const map = L.map('map', { zoomControl: false }).setView([61.6688, 50.8365], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
 
         let userCoords = null;
         let routingControl = null;
@@ -81,75 +105,111 @@
             verified: new L.Icon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png', iconSize: [25, 41], iconAnchor: [12, 41]})
         };
 
-        // 1. Определение местоположения
+        // --- ГЕОЛОКАЦИЯ ---
         function locateUser() {
-            if (!navigator.geolocation) return alert("Гео не поддерживается");
+            if (!navigator.geolocation) return alert("Ваш браузер не поддерживает GPS");
+            
+            // Опции для более точного поиска
+            const options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 };
+
             navigator.geolocation.getCurrentPosition(pos => {
                 userCoords = [pos.coords.latitude, pos.coords.longitude];
                 map.flyTo(userCoords, 16);
-                L.circleMarker(userCoords, { radius: 8, color: 'white', fillColor: '#007bff', fillOpacity: 1, weight: 3 }).addTo(map);
-            }, () => alert("Разрешите доступ к GPS"));
+                L.circleMarker(userCoords, { radius: 10, color: 'white', fillColor: '#007bff', fillOpacity: 0.8, weight: 3 }).addTo(map);
+            }, err => {
+                if(err.code === 1) alert("Пожалуйста, разрешите доступ к GPS в настройках браузера для этой функции.");
+                else alert("Не удалось определить местоположение.");
+            }, options);
         }
 
-        // 2. Построение маршрута на карте
+        // --- МАРШРУТЫ ---
         function buildRoute(destLat, destLon) {
             if (!userCoords) {
-                alert("Сначала нажмите 'Где я?', чтобы мы знали, откуда вести маршрут.");
-                locateUser();
+                alert("Сначала нажмите 'Где я?', чтобы приложение знало вашу точку старта.");
                 return;
             }
-
-            // Если маршрут уже есть, удаляем старый
             clearRoute();
-
             routingControl = L.Routing.control({
-                waypoints: [
-                    L.latLng(userCoords[0], userCoords[1]),
-                    L.latLng(destLat, destLon)
-                ],
-                lineOptions: {
-                    styles: [{ color: '#6f42c1', opacity: 0.8, weight: 6 }]
-                },
-                createMarker: function() { return null; }, // Не создавать лишние маркеры в начале/конце
-                addWaypoints: false,
-                routeWhileDragging: false
+                waypoints: [L.latLng(userCoords[0], userCoords[1]), L.latLng(destLat, destLon)],
+                lineOptions: { styles: [{ color: '#6f42c1', opacity: 0.7, weight: 6 }] },
+                createMarker: () => null,
+                addWaypoints: false
             }).addTo(map);
-
             document.getElementById('clear-route').style.display = 'block';
-            map.closePopup(); // Закрыть попап, чтобы видеть начало пути
+            map.closePopup();
         }
 
         function clearRoute() {
-            if (routingControl) {
-                map.removeControl(routingControl);
-                routingControl = null;
-                document.getElementById('clear-route').style.display = 'none';
-            }
+            if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+            document.getElementById('clear-route').style.display = 'none';
+        }
+
+        // --- ИНТЕРФЕЙС ---
+        function togglePanel(id) {
+            const panel = document.getElementById(id);
+            const isOpen = panel.classList.contains('open');
+            closePanels();
+            if (!isOpen) panel.classList.add('open');
+        }
+
+        function closePanels() {
+            document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open'));
         }
 
         function formatDate(d) { return d ? new Date(d).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '--'; }
 
         map.on('click', e => {
-            if(!localStorage.getItem('token')) { togglePanel('auth-panel'); return; }
+            if(!localStorage.getItem('token')) {
+                togglePanel('auth-panel');
+                return;
+            }
             document.getElementById('lat').value = e.latlng.lat.toFixed(6);
             document.getElementById('lon').value = e.latlng.lng.toFixed(6);
             togglePanel('report-panel');
         });
 
-        function togglePanel(id) { closePanels(); document.getElementById(id).classList.add('open'); }
-        function closePanels() { document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open')); }
-
+        // --- API ВЗАИМОДЕЙСТВИЕ ---
         async function handleAuth(type) {
             const e = document.getElementById('email').value, p = document.getElementById('password').value;
+            if(!e || !p) return alert("Заполните поля!");
+            
             let url = type === 'register' ? `/api/auth/register?email=${e}&password=${p}` : `/api/auth/login`;
-            let fd = null; if(type === 'login') { fd = new FormData(); fd.append('username', e); fd.append('password', p); }
+            let fd = null; 
+            if(type === 'login') { fd = new FormData(); fd.append('username', e); fd.append('password', p); }
+            
             const res = await fetch(url, { method: 'POST', body: fd });
             const data = await res.json();
+            
             if(res.ok && type === 'login') {
                 localStorage.setItem('token', data.access_token);
                 localStorage.setItem('role', data.role);
                 location.reload();
-            } else if(res.ok) alert("Успешно!");
+            } else if(res.ok) alert("Регистрация успешна! Теперь войдите.");
+            else alert("Ошибка входа или регистрации.");
+        }
+
+        async function loadReports() {
+            const res = await fetch('/api/reports');
+            const data = await res.json();
+            const role = localStorage.getItem('role');
+
+            data.forEach(r => {
+                const m = L.marker([r.lat, r.lon], {icon: icons[r.status] || icons.pending}).addTo(map);
+                let h = `<div style="min-width: 200px;"><b>${r.snow_type}</b><br>`;
+                h += `<div class="time-info">📅 Создано: ${formatDate(r.created_at)}</div>`;
+                if(r.status !== 'pending') h += `<div class="time-info">✅ Выполнено: ${formatDate(r.updated_at)}</div>`;
+                if(r.photo_url) h += `<img src="${r.photo_url}" class="report-img" onclick="window.open('${r.photo_url}')">`;
+                
+                h += `<button class="btn route-btn" onclick="buildRoute(${r.lat}, ${r.lon})">🧭 Проложить путь</button>`;
+
+                if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
+                    h += `<hr><label style="font-size:11px">Загрузить фото уборки:</label><input type="file" id="done-f-${r.id}">
+                          <button class="btn btn-primary" style="width:100%;margin-top:5px" onclick="markDone(${r.id})">Отметить выполненным</button>`;
+                }
+                if(role === 'admin') h += `<button class="btn" style="background:#ff4d4d; color:white; width:100%; margin-top:5px" onclick="del(${r.id})">Удалить метку</button>`;
+                
+                m.bindPopup(h + "</div>");
+            });
         }
 
         async function submitReport() {
@@ -160,51 +220,23 @@
             fd.append('snow_type', document.getElementById('snow-type').value);
             const file = document.getElementById('file-in').files[0];
             if(file) fd.append('file', file);
-            await fetch('/api/reports', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: fd });
-            location.reload();
-        }
 
-        async function loadReports() {
-            const res = await fetch('/api/reports');
-            const data = await res.json();
-            const role = localStorage.getItem('role');
-
-            data.forEach(r => {
-                const m = L.marker([r.lat, r.lon], {icon: icons[r.status] || icons.pending}).addTo(map);
-                let h = `<b>${r.snow_type}</b><br><div class="time-info">🕒 ${formatDate(r.created_at)}</div>`;
-                if(r.status !== 'pending') h += `<div class="time-info">🧹 ${formatDate(r.updated_at)}</div>`;
-                if(r.photo_url) h += `<img src="${r.photo_url}" class="report-img" onclick="window.open('${r.photo_url}')">`;
-                
-                // НОВАЯ КНОПКА МАРШРУТА
-                h += `<button class="btn route-btn" onclick="buildRoute(${r.lat}, ${r.lon})">🧭 Сюда пешком/авто</button>`;
-
-                if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
-                    h += `<hr><input type="file" id="done-f-${r.id}"><button class="btn btn-primary" style="width:100%;margin-top:5px" onclick="markDone(${r.id})">Убрано</button>`;
-                }
-                if(role === 'admin') h += `<button class="btn" style="background:#ff4d4d;color:white;width:100%;margin-top:5px" onclick="del(${r.id})">Удалить</button>`;
-                
-                m.bindPopup(h);
+            const res = await fetch('/api/reports', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: fd
             });
+            if(res.ok) location.reload();
         }
-
-        async function markDone(id) {
-            const fd = new FormData();
-            const f = document.getElementById(`done-f-${id}`).files[0];
-            if(f) fd.append('file', f);
-            await fetch(`/api/cleaner/reports/${id}/done`, { method: 'POST', body: fd });
-            location.reload();
-        }
-
-        async function del(id) { await fetch(`/api/admin/reports/${id}`, { method: 'DELETE' }); location.reload(); }
 
         async function openAdminPanel() {
             togglePanel('admin-panel');
             const res = await fetch('/api/admin/users');
             const users = await res.json();
             document.getElementById('users-list').innerHTML = users.map(u => `
-                <div style="padding:10px; border-bottom:1px solid #eee">
-                    <b>${u.email}</b><br>
-                    <select onchange="changeRole(${u.id}, this.value)">
+                <div style="padding:15px; border-bottom:1px solid #eee">
+                    <span style="font-size:14px; font-weight:bold">${u.email}</span><br>
+                    <select style="margin-top:5px" onchange="changeRole(${u.id}, this.value)">
                         <option value="user" ${u.role==='user'?'selected':''}>Житель</option>
                         <option value="cleaner" ${u.role==='cleaner'?'selected':''}>Уборщик</option>
                         <option value="admin" ${u.role==='admin'?'selected':''}>Админ</option>
@@ -215,11 +247,23 @@
 
         async function changeRole(id, r) {
             await fetch(`/api/admin/users/${id}/role`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({role: r}) });
+            alert("Роль обновлена");
         }
 
+        async function markDone(id) {
+            const fd = new FormData();
+            const f = document.getElementById(`done-f-${id}`).files[0];
+            if(f) fd.append('file', f);
+            await fetch(`/api/cleaner/reports/${id}/done`, { method: 'POST', body: fd });
+            location.reload();
+        }
+
+        async function del(id) { if(confirm("Удалить метку?")) { await fetch(`/api/admin/reports/${id}`, { method: 'DELETE' }); location.reload(); } }
+
+        // Проверка авторизации при загрузке
         const token = localStorage.getItem('token');
         if(token) {
-            document.getElementById('auth-btn').innerText = 'Выход';
+            document.getElementById('auth-btn').innerText = 'Выйти';
             document.getElementById('auth-btn').onclick = () => { localStorage.clear(); location.reload(); };
             document.getElementById('add-btn').style.display = 'block';
             if(localStorage.getItem('role') === 'admin') document.getElementById('admin-link').style.display='block';
