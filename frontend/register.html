@@ -4,57 +4,31 @@
     <meta charset="UTF-8">
     <title>Регистрация — AntiSnow</title>
     <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; }
-        .form-card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 300px; }
-        input, select, button { width: 100%; margin-bottom: 1rem; padding: 10px; box-sizing: border-box; }
+        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f2f5; margin: 0; }
+        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 300px; }
+        input, button { width: 100%; margin-bottom: 1rem; padding: 10px; box-sizing: border-box; }
         button { background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
-        button:hover { background: #0056b3; }
-        .msg { font-size: 14px; text-align: center; }
     </style>
 </head>
 <body>
-    <div class="form-card">
+    <div class="card">
         <h2>Регистрация</h2>
         <form id="regForm">
             <input type="email" id="email" placeholder="Email" required>
             <input type="password" id="password" placeholder="Пароль" required>
-            <select id="role">
-                <option value="user">Житель</option>
-                <option value="cleaner">Уборщик</option>
-                <option value="admin">Администратор</option>
-            </select>
             <button type="submit">Создать аккаунт</button>
         </form>
-        <div id="message" class="msg"></div>
+        <p style="font-size:12px; color:gray">После регистрации вы сможете добавлять метки на карту.</p>
+        <a href="login.html" style="font-size:12px;">Уже есть аккаунт? Войти</a>
     </div>
-
     <script>
         document.getElementById('regForm').onsubmit = async (e) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
-            const role = document.getElementById('role').value;
-            const msgDiv = document.getElementById('message');
-
-            try {
-                // Отправляем данные на твой API
-                const response = await fetch(`/api/auth/register?email=${email}&password=${password}&role=${role}`, {
-                    method: 'POST'
-                });
-
-                const result = await response.json();
-
-                if (response.ok) {
-                    msgDiv.style.color = "green";
-                    msgDiv.innerText = "Успех! Теперь можно войти.";
-                    setTimeout(() => { window.location.href = '/login.html'; }, 2000);
-                } else {
-                    msgDiv.style.color = "red";
-                    msgDiv.innerText = "Ошибка: " + (result.detail || "Что-то пошло не так");
-                }
-            } catch (err) {
-                msgDiv.innerText = "Ошибка соединения с сервером";
-            }
+            const res = await fetch(`/api/auth/register?email=${email}&password=${password}`, { method: 'POST' });
+            if (res.ok) { alert("Успех!"); window.location.href = '/login.html'; }
+            else { alert("Ошибка регистрации"); }
         };
     </script>
 </body>

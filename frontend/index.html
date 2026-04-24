@@ -2,54 +2,45 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AntiSnow Сыктывкар</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; overflow: hidden; }
-        #sidebar { width: 0; background: white; transition: 0.3s; overflow-y: auto; z-index: 2000; display: flex; flex-direction: column; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
-        #sidebar.open { width: 350px; padding: 20px; }
+        #sidebar, #admin-panel { width: 0; background: white; transition: 0.3s; overflow-y: auto; z-index: 2000; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
+        #sidebar.open, #admin-panel.open { width: 350px; padding: 20px; }
         #map { flex: 1; z-index: 1; }
-        
         .top-nav { position: absolute; top: 15px; left: 60px; right: 15px; z-index: 1000; display: flex; justify-content: space-between; pointer-events: none; }
         .nav-block { background: white; padding: 8px 15px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); pointer-events: auto; display: flex; align-items: center; gap: 10px; }
-        
-        .user-info { font-weight: bold; font-size: 14px; }
-        .role-badge { background: #007bff; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; text-transform: uppercase; }
-        .role-admin { background: #dc3545; }
-        
-        #reportForm { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
-        #reportForm input, #reportForm button { padding: 10px; border-radius: 6px; border: 1px solid #ddd; }
-        #reportForm button { background: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; }
-        
-        .popup-photo { width: 100%; max-height: 150px; object-fit: cover; border-radius: 4px; margin: 8px 0; }
-        .btn-done { background: #28a745; color: white; border: none; padding: 8px; width: 100%; border-radius: 4px; cursor: pointer; }
-        
-        /* Стили цветных меток */
-        .marker-new { filter: hue-rotate(0deg); } /* Красный/Синий стандарт */
-        .marker-done { filter: hue-rotate(120deg); } /* Зеленый */
+        .role-admin { background: #dc3545; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+        .user-row { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center; }
+        .popup-photo { width: 100%; max-height: 150px; object-fit: cover; border-radius: 4px; }
     </style>
 </head>
 <body>
 
+    <div id="admin-panel">
+        <button onclick="document.getElementById('admin-panel').classList.remove('open')">Закрыть</button>
+        <h3>Управление правами</h3>
+        <div id="users-list">Загрузка...</div>
+    </div>
+
     <div id="sidebar">
-        <h3 id="side-title">Новая заявка</h3>
+        <h3>Новая заявка</h3>
         <form id="reportForm">
-            <input type="text" id="address" placeholder="Что случилось? (Напр: Сугроб у ТРЦ Июнь)" required>
+            <input type="text" id="address" placeholder="Где снег?" required style="width:100%; padding:8px; margin-bottom:10px;">
             <input type="hidden" id="lat"><input type="hidden" id="lon">
-            <label style="font-size: 12px;">Фото места:</label>
-            <input type="file" id="photo" accept="image/*">
-            <button type="submit">Отправить в AntiSnow</button>
-            <button type="button" onclick="closeSidebar()" style="background:#6c757d">Отмена</button>
+            <input type="file" id="photo" accept="image/*" style="margin-bottom:10px;">
+            <button type="submit" style="width:100%; background:green; color:white; padding:10px; border:none;">Отправить</button>
         </form>
     </div>
 
     <div id="map">
         <div class="top-nav">
             <div class="nav-block">
-                <span class="user-info" id="display-email">...</span>
-                <span class="role-badge" id="display-role">...</span>
-                <button onclick="logout()" style="cursor:pointer">Выйти</button>
+                <span id="display-email">...</span>
+                <span id="display-role">...</span>
+                <button id="admin-btn" style="display:none;" onclick="openAdminPanel()">Права</button>
+                <button onclick="localStorage.clear(); window.location.href='/login.html'">Выйти</button>
             </div>
         </div>
     </div>
@@ -61,13 +52,14 @@
         if (!token) window.location.href = '/login.html';
 
         document.getElementById('display-email').innerText = localStorage.getItem('user_email');
-        const rBadge = document.getElementById('display-role');
-        rBadge.innerText = role === 'admin' ? 'Админ' : 'Житель';
-        if(role === 'admin') rBadge.classList.add('role-admin');
+        if (role === 'admin') {
+            document.getElementById('display-role').innerText = 'Админ';
+            document.getElementById('display-role').className = 'role-admin';
+            document.getElementById('admin-btn').style.display = 'inline';
+        } else {
+            document.getElementById('display-role').innerText = 'Житель';
+        }
 
-        function logout() { localStorage.clear(); window.location.href = '/login.html'; }
-
-        // ЦЕНТР — СЫКТЫВКАР
         const map = L.map('map').setView([61.66, 50.81], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
@@ -77,8 +69,6 @@
             document.getElementById('lon').value = e.latlng.lng;
         });
 
-        function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); }
-
         document.getElementById('reportForm').onsubmit = async (e) => {
             e.preventDefault();
             const fd = new FormData();
@@ -87,40 +77,54 @@
             fd.append('lon', document.getElementById('lon').value);
             const p = document.getElementById('photo').files[0];
             if(p) fd.append('photo', p);
-
-            const res = await fetch('/api/report', { method: 'POST', body: fd });
-            if(res.ok) { alert("Принято!"); location.reload(); }
+            await fetch('/api/report', { method: 'POST', body: fd });
+            location.reload();
         };
 
-        async function load() {
+        async function loadReports() {
             const res = await fetch('/api/reports');
             const data = await res.json();
             data.forEach(r => {
-                // Если статус "Убрано", делаем метку зеленой через фильтр
                 const marker = L.marker([r.lat, r.lon]).addTo(map);
-                if (r.status === 'Убрано') {
-                    marker._icon.style.filter = "hue-rotate(140deg) saturate(2)"; 
-                }
-
-                let html = `<b>${r.address}</b><br>Статус: ${r.status}`;
-                if(r.photo_url) html += `<br><img src="${r.photo_url}" class="popup-photo">`;
-                
-                if(role === 'admin' && r.status === 'Новый') {
-                    html += `<br><button class="btn-done" onclick="setDone(${r.id})">Отметить: УБРАНО</button>`;
-                }
-                marker.bindPopup(html);
+                if (r.status === 'Убрано') marker._icon.style.filter = "hue-rotate(140deg)";
+                let h = `<b>${r.address}</b><br>Статус: ${r.status}`;
+                if(r.photo_url) h += `<br><img src="${r.photo_url}" class="popup-photo">`;
+                if(role === 'admin' && r.status === 'Новый') h += `<br><button onclick="setStatus(${r.id})">УБРАНО</button>`;
+                marker.bindPopup(h);
             });
         }
 
-        async function setDone(id) {
-            const res = await fetch(`/api/reports/${id}/status?new_status=Убрано`, {
+        async function setStatus(id) {
+            await fetch(`/api/reports/${id}/status?new_status=Убрано`, { 
+                method: 'PATCH', 
+                headers: { 'Authorization': `Bearer ${token}` } 
+            });
+            location.reload();
+        }
+
+        async function openAdminPanel() {
+            document.getElementById('admin-panel').classList.add('open');
+            const res = await fetch('/api/admin/users', { headers: { 'Authorization': `Bearer ${token}` } });
+            const users = await res.json();
+            const list = document.getElementById('users-list');
+            list.innerHTML = users.map(u => `
+                <div class="user-row">
+                    <span>${u.email} (${u.role})</span>
+                    <button onclick="toggleRole(${u.id}, '${u.role}')">Сменить роль</button>
+                </div>
+            `).join('');
+        }
+
+        async function toggleRole(id, currentRole) {
+            const newRole = currentRole === 'admin' ? 'user' : 'admin';
+            await fetch(`/api/admin/users/${id}/role?new_role=${newRole}`, {
                 method: 'PATCH',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            if(res.ok) location.reload();
+            openAdminPanel();
         }
 
-        load();
+        loadReports();
     </script>
 </body>
 </html>
