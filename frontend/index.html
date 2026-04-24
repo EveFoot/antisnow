@@ -17,6 +17,7 @@
         .btn { padding: 8px 16px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; transition: 0.3s; }
         .btn-primary { background: #007bff; color: white; }
         .btn-admin { background: #dc3545; color: white; display: none; }
+        .btn-delete { background: #ff4d4d; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-top: 8px; }
         .side-panel {
             position: absolute; top: 0; right: -400px; width: 350px; height: 100vh;
             background: white; z-index: 1001; transition: 0.4s; padding: 25px;
@@ -143,7 +144,27 @@
         async function loadReports() {
             const res = await fetch('/api/reports');
             const data = await res.json();
-            if (Array.isArray(data)) data.forEach(r => L.marker([r.lat, r.lon]).addTo(map).bindPopup(r.snow_type));
+            const role = localStorage.getItem('role');
+            if (Array.isArray(data)) {
+                data.forEach(r => {
+                    let popupContent = `<b>${r.snow_type}</b>`;
+                    if (role === 'admin') {
+                        popupContent += `<br><button class="btn btn-delete" onclick="deleteReport(${r.id})">Удалить</button>`;
+                    }
+                    L.marker([r.lat, r.lon]).addTo(map).bindPopup(popupContent);
+                });
+            }
+        }
+
+        async function deleteReport(reportId) {
+            if (!confirm("Удалить эту метку?")) return;
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/api/admin/reports/${reportId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) location.reload();
+            else alert("Ошибка удаления");
         }
 
         async function openAdminPanel() {

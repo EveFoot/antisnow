@@ -70,6 +70,15 @@ def create_report(report: ReportCreate, db: Session = Depends(get_db)):
     db.refresh(new_report)
     return new_report
 
+@app.delete("/admin/reports/{report_id}")
+def delete_report(report_id: int, db: Session = Depends(get_db)):
+    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    db.delete(report)
+    db.commit()
+    return {"status": "deleted"}
+
 @app.post("/auth/register")
 def register(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == email).first():
