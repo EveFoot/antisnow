@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from jose import jwt, JWTError
+from jose import jwt
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user_admin:password@db:5432/antisnow_db")
 SECRET_KEY = "SECRET_SECRET_123" 
@@ -38,8 +38,8 @@ class SnowReport(Base):
     lon = Column(Float)
     snow_type = Column(String)
     status = Column(String, default="pending") 
-    photo_url = Column(String, nullable=True)      # Фото "ДО"
-    done_photo_url = Column(String, nullable=True) # Фото "ПОСЛЕ"
+    photo_url = Column(String, nullable=True)
+    done_photo_url = Column(String, nullable=True)
     author_email = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -74,9 +74,8 @@ async def create(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form
         fname = f"before_{uuid.uuid4()}_{file.filename}"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as b: b.write(await file.read())
         path = f"/api/static_uploads/{fname}"
-    db.add(SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path, author_email=u.email))
-    db.commit()
-    return {"ok": True}
+    rep = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=path, author_email=u.email)
+    db.add(rep); db.commit(); return {"ok": True}
 
 @app.post("/reports/{r_id}/done")
 async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
@@ -87,8 +86,7 @@ async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(
         rep.done_photo_url = f"/api/static_uploads/{fname}"
     rep.status = "cleaned"
     rep.updated_at = datetime.utcnow()
-    db.commit()
-    return {"ok": True}
+    db.commit(); return {"ok": True}
 
 @app.post("/reports/{r_id}/verify")
 def verify_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
