@@ -53,6 +53,8 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ВАЖНО: Монтируем статику ДО всех API роутов
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
@@ -64,6 +66,7 @@ def get_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db))
     try:
         p = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         u = db.query(User).filter(User.email == p.get("sub")).first()
+        if not u: raise HTTPException(401)
         return u
     except: raise HTTPException(401)
 
@@ -75,7 +78,7 @@ def get_reports(db: Session = Depends(get_db)):
 async def create(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form(...), file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
     path = None
     if file:
-        fname = f"before_{uuid.uuid4().hex}_{file.filename.replace(' ', '_')}"
+        fname = f"before_{uuid.uuid4().hex}.jpg"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as buffer:
             buffer.write(await file.read())
         path = f"/static_uploads/{fname}"
@@ -86,12 +89,12 @@ async def create(lat: float=Form(...), lon: float=Form(...), snow_type: str=Form
 async def mark_done(r_id: int, file: UploadFile=File(None), db: Session=Depends(get_db), u: User=Depends(get_user)):
     rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
     if file:
-        fname = f"after_{uuid.uuid4().hex}_{file.filename.replace(' ', '_')}"
+        fname = f"after_{uuid.uuid4().hex}.jpg"
         with open(os.path.join(UPLOAD_DIR, fname), "wb") as buffer:
             buffer.write(await file.read())
         rep.done_photo_url = f"/static_uploads/{fname}"
     rep.status = "cleaned"
-    rep.updated_at = datetime.utcnow() # Обновляем дату уборки
+    rep.updated_at = datetime.utcnow()
     db.commit(); return {"ok": True}
 
 @app.post("/api/auth/register")
@@ -106,6 +109,18 @@ def login(f: OAuth2PasswordRequestForm=Depends(), db: Session=Depends(get_db)):
     if not u or u.hashed_password != hashlib.sha256(f.password.encode()).hexdigest(): raise HTTPException(401)
     t = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
     return {"access_token": t, "token_type": "bearer", "role": u.role.value, "email": u.email}
+
+# АДМИНКА
+@app.get("/api/admin/users")
+def get_users(db:Session=Depends(get_db), u:User=Depends(get_user)):
+    if u.role != UserRole.admin: raise HTTPException(403)
+    return db.query(User).all()
+
+@app.put("/api/admin/users/{u_id}/role")
+def up_role(u_id:int, data:dict, db:Session=Depends(get_db), u:User=Depends(get_user)):
+    if u.role != UserRole.admin: raise HTTPException(403)
+    db.query(User).filter(User.id == u_id).update({"role": data['role']})
+    db.commit(); return {"ok": True}
 
 @app.delete("/api/reports/{r_id}")
 def delete_rep(r_id: int, db: Session=Depends(get_db), u: User=Depends(get_user)):
