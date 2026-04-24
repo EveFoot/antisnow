@@ -13,6 +13,7 @@
         .side.open { right: 0; }
         .btn { border: none; padding: 10px 15px; border-radius: 10px; cursor: pointer; font-weight: bold; }
         .btn-blue { background: var(--primary); color: white; width: 100%; }
+        .btn-red { background: #FF3B30; color: white; width: 100%; }
         .photo-card { width: 100%; height: 100px; object-fit: cover; border-radius: 8px; margin-top: 5px; cursor: pointer; background: #eee; }
         .time-label { font-size: 10px; color: #888; display: block; margin-top: 2px; }
         .user-row { padding: 12px; border-bottom: 1px solid #eee; }
@@ -48,7 +49,7 @@
         <option>Гололед</option>
         <option>Слякоть</option>
     </select>
-    <input type="file" id="file-in">
+    <input type="file" id="file-in" accept="image/*">
     <button class="btn btn-blue" style="margin-top:15px" onclick="sendReport()">Отправить</button>
 </div>
 
@@ -79,92 +80,193 @@
 
     async function auth(t) {
         const e = document.getElementById('email').value, p = document.getElementById('pass').value;
-        const fd = new FormData(); if(t==='login'){ fd.append('username', e); fd.append('password', p); }
-        const res = await fetch(t==='reg'?`/api/auth/register?email=${e}&password=${p}`:'/api/auth/login', {method:'POST', body:fd});
+        
+        let res;
+        if(t === 'login') {
+            const fd = new FormData();
+            fd.append('username', e);
+            fd.append('password', p);
+            res = await fetch('/api/auth/login', {method: 'POST', body: fd});
+        } else {
+            res = await fetch(`/api/auth/register?email=${encodeURIComponent(e)}&password=${encodeURIComponent(p)}`, {method: 'POST'});
+        }
+        
         if(res.ok) {
             const d = await res.json();
-            if(t==='login'){
+            if(t === 'login'){
                 localStorage.setItem('token', d.access_token);
                 localStorage.setItem('role', d.role);
                 localStorage.setItem('email', d.email);
                 location.reload();
-            } else alert("Ок!");
+            } else {
+                alert("Регистрация успешна! Теперь войдите.");
+            }
+        } else {
+            const err = await res.json();
+            alert(err.detail || 'Ошибка');
         }
     }
 
     async function sendReport() {
+        const token = localStorage.getItem('token');
+        if (!token) return alert('Войдите в систему');
+        
         const fd = new FormData();
-        fd.append('lat', document.getElementById('lat').value); fd.append('lon', document.getElementById('lon').value);
+        fd.append('lat', document.getElementById('lat').value);
+        fd.append('lon', document.getElementById('lon').value);
         fd.append('snow_type', document.getElementById('stype').value);
-        const f = document.getElementById('file-in').files[0]; if(f) fd.append('file', f);
-        await fetch('/api/reports', { method:'POST', headers:{'Authorization': 'Bearer '+localStorage.getItem('token')}, body:fd });
-        location.reload();
+        
+        const fileInput = document.getElementById('file-in');
+        if (fileInput.files && fileInput.files[0]) {
+            fd.append('file', fileInput.files[0]);
+        }
+        
+        try {
+            const res = await fetch('/api/reports', { 
+                method: 'POST',
+                headers: {'Authorization': 'Bearer ' + token}, 
+                body: fd 
+            });
+            
+            if (res.ok) {
+                alert('Метка создана!');
+                location.reload();
+            } else {
+                const err = await res.json();
+                alert('Ошибка: ' + (err.detail || 'Неизвестная ошибка'));
+            }
+        } catch (e) {
+            alert('Ошибка соединения: ' + e.message);
+        }
     }
 
     async function loadReports() {
-        const res = await fetch('/api/reports');
-        const data = await res.json();
-        const role = localStorage.getItem('role');
+        try {
+            const res = await fetch('/api/reports');
+            const data = await res.json();
+            const role = localStorage.getItem('role');
 
-        data.forEach(r => {
-            const icon = L.icon({
-                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${r.status==='pending'?'red':'blue'}.png`,
-                iconSize: [25, 41], iconAnchor: [12, 41]
+            data.forEach(r => {
+                const icon = L.icon({
+                    iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${r.status === 'pending' ? 'red' : 'blue'}.png`,
+                    iconSize: [25, 41], 
+                    iconAnchor: [12, 41]
+                });
+                const m = L.marker([r.lat, r.lon], {icon}).addTo(map);
+                
+                let h = `<div style="width:220px">
+                    <b>${r.snow_type}</b><br>
+                    <div style="display:flex; gap:5px; margin-top:8px">
+                        <div style="flex:1">
+                            <small>До:</small>
+                            ${r.photo_url ? `<img src="${r.photo_url}" class="photo-card" onclick="window.open('${r.photo_url}')" onerror="this.style.display='none'">` : '<div class="photo-card"></div>'}
+                            <span class="time-label">${fmt(r.created_at)}</span>
+                        </div>
+                        <div style="flex:1">
+                            <small>После:</small>
+                            ${r.done_photo_url ? `<img src="${r.done_photo_url}" class="photo-card" onclick="window.open('${r.done_photo_url}')" onerror="this.style.display='none'">` : '<div class="photo-card"></div>'}
+                            <span class="time-label">${r.status === 'cleaned' ? fmt(r.updated_at) : '—'}</span>
+                        </div>
+                    </div>
+                    <div style="margin-top:10px; display:flex; gap:5px; flex-wrap:wrap">`;
+                
+                if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
+                    h += `<input type="file" id="f-${r.id}" accept="image/*" style="width:100%; font-size:10px; margin-top:5px">
+                          <button class="btn btn-blue" style="flex:1; padding:5px; font-size:11px" onclick="setDone(${r.id})">Готово</button>`;
+                }
+                
+                if(role === 'admin') {
+                    h += `<button class="btn btn-red" style="flex:1; padding:5px; font-size:11px" onclick="deleteReport(${r.id})">Удалить</button>`;
+                }
+                
+                h += `</div></div>`;
+                m.bindPopup(h);
             });
-            const m = L.marker([r.lat, r.lon], {icon}).addTo(map);
-            
-            let h = `<div style="width:200px">
-                <b>${r.snow_type}</b><br>
-                <div style="display:flex; gap:5px; margin-top:8px">
-                    <div style="flex:1">
-                        <small>До:</small>
-                        ${r.photo_url ? `<img src="${r.photo_url}" class="photo-card" onclick="window.open('${r.photo_url}')">` : '<div class="photo-card"></div>'}
-                        <span class="time-label">${fmt(r.created_at)}</span>
-                    </div>
-                    <div style="flex:1">
-                        <small>После:</small>
-                        ${r.done_photo_url ? `<img src="${r.done_photo_url}" class="photo-card" onclick="window.open('${r.done_photo_url}')">` : '<div class="photo-card"></div>'}
-                        <span class="time-label">${r.status==='cleaned' ? fmt(r.updated_at) : '—'}</span>
-                    </div>
-                </div>`;
-            
-            if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
-                h += `<input type="file" id="f-${r.id}" style="font-size:10px; margin-top:10px">
-                      <button class="btn btn-blue" style="margin-top:5px; padding:5px" onclick="setDone(${r.id})">Готово</button>`;
-            }
-            m.bindPopup(h + `</div>`);
-        });
+        } catch (e) {
+            console.error('Ошибка загрузки отчетов:', e);
+        }
     }
 
     async function setDone(id) {
-        const fd = new FormData(); const f = document.getElementById(`f-${id}`).files[0];
-        if(f) fd.append('file', f);
-        await fetch(`/api/reports/${id}/done`, {method:'POST', body:fd});
-        location.reload();
+        const token = localStorage.getItem('token');
+        const fd = new FormData();
+        const fileInput = document.getElementById(`f-${id}`);
+        
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+            fd.append('file', fileInput.files[0]);
+        }
+        
+        try {
+            await fetch(`/api/reports/${id}/done`, {
+                method: 'POST', 
+                headers: {'Authorization': 'Bearer ' + token},
+                body: fd
+            });
+            location.reload();
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+        }
+    }
+
+    async function deleteReport(id) {
+        if (!confirm('Удалить метку навсегда?')) return;
+        
+        const token = localStorage.getItem('token');
+        try {
+            const res = await fetch(`/api/reports/${id}`, {
+                method: 'DELETE',
+                headers: {'Authorization': 'Bearer ' + token}
+            });
+            
+            if (res.ok) {
+                alert('Метка удалена');
+                location.reload();
+            } else {
+                alert('Ошибка удаления');
+            }
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+        }
     }
 
     async function loadAdmin() {
         toggle('admin-p');
-        const res = await fetch('/api/admin/users', {headers:{'Authorization': 'Bearer '+localStorage.getItem('token')}});
-        const users = await res.json();
-        document.getElementById('u-list').innerHTML = users.map(u => `
-            <div class="user-row">
-                <b>${u.email}</b><br>
-                <select class="role-sel" onchange="updateRole(${u.id}, this.value)">
-                    <option value="user" ${u.role==='user'?'selected':''}>User</option>
-                    <option value="cleaner" ${u.role==='cleaner'?'selected':''}>Cleaner</option>
-                    <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-                </select>
-            </div>
-        `).join('');
+        const token = localStorage.getItem('token');
+        
+        try {
+            const res = await fetch('/api/admin/users', {
+                headers: {'Authorization': 'Bearer ' + token}
+            });
+            
+            if (res.ok) {
+                const users = await res.json();
+                document.getElementById('u-list').innerHTML = users.map(u => `
+                    <div class="user-row">
+                        <b>${u.email}</b><br>
+                        <select class="role-sel" onchange="updateRole(${u.id}, this.value)">
+                            <option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option>
+                            <option value="cleaner" ${u.role === 'cleaner' ? 'selected' : ''}>Cleaner</option>
+                            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+                        </select>
+                    </div>
+                `).join('');
+            }
+        } catch (e) {
+            console.error('Ошибка загрузки пользователей:', e);
+        }
     }
 
     async function updateRole(uid, role) {
-        await fetch(`/api/admin/users/${uid}/role?new_role=${role}`, {
-            method:'PATCH',
-            headers:{'Authorization': 'Bearer '+localStorage.getItem('token')}
-        });
-        alert('Роль обновлена');
+        const token = localStorage.getItem('token');
+        try {
+            await fetch(`/api/admin/users/${uid}/role?new_role=${role}`, {
+                method: 'PATCH',
+                headers: {'Authorization': 'Bearer ' + token}
+            });
+            alert('Роль обновлена');
+        } catch (e) {
+            alert('Ошибка: ' + e.message);
+        }
     }
 
     if(localStorage.getItem('token')) {
@@ -173,6 +275,7 @@
         document.getElementById('logout-btn').style.display = 'block';
         if(localStorage.getItem('role') === 'admin') document.getElementById('adm-btn').style.display = 'block';
     }
+    
     loadReports();
 </script>
 </body>
