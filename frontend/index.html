@@ -2,61 +2,73 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AntiSnow PRO</title>
+    <title>AntiSnow Control</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        :root { --primary: #007AFF; --bg: #F2F2F7; }
-        body { margin: 0; font-family: -apple-system, sans-serif; background: var(--bg); }
+        :root { --primary: #007AFF; --danger: #FF3B30; }
+        body { margin: 0; font-family: -apple-system, sans-serif; background: #F2F2F7; }
         #map { height: 100vh; width: 100vw; z-index: 1; }
-        .header { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1000; background: white; padding: 10px 20px; border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; gap: 15px; align-items: center; }
-        .side { position: fixed; top: 0; right: -380px; width: 340px; height: 100vh; background: white; z-index: 2000; transition: 0.3s; padding: 20px; box-shadow: -5px 0 20px rgba(0,0,0,0.15); overflow-y: auto; }
+        
+        .header { 
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); 
+            z-index: 1000; background: white; padding: 10px 25px; border-radius: 30px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: flex; gap: 15px; align-items: center;
+        }
+
+        .side { 
+            position: fixed; top: 0; right: -380px; width: 320px; height: 100vh; 
+            background: white; z-index: 2000; transition: 0.3s; padding: 25px; 
+            box-shadow: -5px 0 20px rgba(0,0,0,0.1); overflow-y: auto;
+        }
         .side.open { right: 0; }
-        .btn { border: none; padding: 10px 15px; border-radius: 10px; cursor: pointer; font-weight: bold; }
+
+        .btn { border: none; padding: 10px 15px; border-radius: 12px; cursor: pointer; font-weight: 600; }
         .btn-blue { background: var(--primary); color: white; width: 100%; }
-        .btn-red { background: #FF3B30; color: white; width: 100%; }
-        .photo-card { width: 100%; height: 100px; object-fit: cover; border-radius: 8px; margin-top: 5px; cursor: pointer; background: #eee; }
-        .time-label { font-size: 10px; color: #888; display: block; margin-top: 2px; }
-        .user-row { padding: 12px; border-bottom: 1px solid #eee; }
-        select.role-sel { font-size: 11px; padding: 4px; width: auto; margin-top: 5px; }
+        
+        .photo-box { width: 100%; height: 100px; object-fit: cover; border-radius: 8px; border: 1px solid #eee; cursor: zoom-in; background: #f9f9f9; }
+        .timestamp { font-size: 10px; color: #8E8E93; display: block; margin-top: 3px; line-height: 1.2; }
+        
+        .admin-unit { padding: 12px; border-bottom: 1px solid #F2F2F7; }
+        .del-btn { background: none; border: none; color: var(--danger); font-size: 11px; cursor: pointer; padding: 5px 0; width: 100%; text-align: left; }
     </style>
 </head>
 <body>
 
 <div class="header">
-    <span id="u-mail" style="font-weight:bold; font-size:13px">AntiSnow</span>
-    <button class="btn" onclick="toggle('auth-p')">Меню</button>
-    <button id="adm-btn" class="btn" style="background:#333; color:white; display:none" onclick="loadAdmin()">Админка</button>
+    <span id="u-mail" style="font-weight:700; font-size:14px">AntiSnow</span>
+    <button class="btn" onclick="toggleSide('auth-p')">Профиль</button>
+    <button id="adm-btn" class="btn" style="display:none; background:#1C1C1E; color:white" onclick="openAdmin()">Админка</button>
 </div>
 
 <div id="map"></div>
 
 <div id="auth-p" class="side">
-    <h2>Профиль</h2>
-    <div id="login-form">
-        <input type="email" id="email" placeholder="Email" style="width:100%; padding:10px; margin-bottom:10px">
-        <input type="password" id="pass" placeholder="Пароль" style="width:100%; padding:10px; margin-bottom:10px">
-        <button class="btn btn-blue" onclick="auth('login')">Войти</button>
-        <button class="btn" style="width:100%; margin-top:5px" onclick="auth('reg')">Регистрация</button>
+    <h2>Аккаунт</h2>
+    <div id="login-zone">
+        <input type="email" id="email" placeholder="Email" style="width:100%; padding:12px; margin-bottom:10px; border-radius:10px; border:1px solid #ddd;">
+        <input type="password" id="pass" placeholder="Пароль" style="width:100%; padding:12px; margin-bottom:15px; border-radius:10px; border:1px solid #ddd;">
+        <button class="btn btn-blue" onclick="handleAuth('login')">Войти</button>
+        <button class="btn" style="width:100%; margin-top:10px; background:#E5E5EA" onclick="handleAuth('reg')">Регистрация</button>
     </div>
-    <button id="logout-btn" class="btn" style="width:100%; margin-top:30px; color:red; display:none" onclick="localStorage.clear();location.reload()">Выйти</button>
+    <button id="logout-btn" class="btn" style="width:100%; margin-top:40px; color:var(--danger); display:none" onclick="localStorage.clear();location.reload()">Выйти</button>
 </div>
 
 <div id="report-p" class="side">
-    <h2>Новая метка</h2>
+    <h2>Сообщить о снеге</h2>
     <input type="hidden" id="lat"><input type="hidden" id="lon">
-    <select id="stype" style="width:100%; padding:10px; margin-bottom:10px">
+    <select id="stype" style="width:100%; padding:12px; margin-bottom:15px; border-radius:10px;">
         <option>Снежные завалы</option>
         <option>Гололед</option>
-        <option>Слякоть</option>
+        <option>Слякоть / Каша</option>
     </select>
-    <input type="file" id="file-in" accept="image/*">
-    <button class="btn btn-blue" style="margin-top:15px" onclick="sendReport()">Отправить</button>
+    <input type="file" id="file-in" accept="image/*" style="margin-bottom:20px">
+    <button class="btn btn-blue" onclick="submitReport()">Отправить метку</button>
 </div>
 
 <div id="admin-p" class="side">
-    <h2>Пользователи</h2>
-    <div id="u-list"></div>
-    <button class="btn" style="width:100%; margin-top:20px" onclick="toggle('admin-p')">Закрыть</button>
+    <h2>Управление ролями</h2>
+    <div id="user-list"></div>
+    <button class="btn" style="width:100%; margin-top:30px; background:#F2F2F7" onclick="toggleSide()">Закрыть</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -64,219 +76,140 @@
     const map = L.map('map', {zoomControl: false}).setView([61.6688, 50.8365], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    function toggle(id) { 
+    function toggleSide(id) {
         document.querySelectorAll('.side').forEach(s => s.classList.remove('open'));
-        if(id) document.getElementById(id).classList.add('open'); 
+        if(id) document.getElementById(id).classList.add('open');
     }
 
+    const formatDate = (iso) => iso ? new Date(iso).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '—';
+
     map.on('click', e => {
-        if(!localStorage.getItem('token')) return toggle('auth-p');
+        if(!localStorage.getItem('token')) return toggleSide('auth-p');
         document.getElementById('lat').value = e.latlng.lat;
         document.getElementById('lon').value = e.latlng.lng;
-        toggle('report-p');
+        toggleSide('report-p');
     });
 
-    const fmt = (iso) => iso ? new Date(iso).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) : '—';
-
-    async function auth(t) {
+    async function handleAuth(type) {
         const e = document.getElementById('email').value, p = document.getElementById('pass').value;
-        
-        let res;
-        if(t === 'login') {
-            const fd = new FormData();
-            fd.append('username', e);
-            fd.append('password', p);
-            res = await fetch('/api/auth/login', {method: 'POST', body: fd});
-        } else {
-            res = await fetch(`/api/auth/register?email=${encodeURIComponent(e)}&password=${encodeURIComponent(p)}`, {method: 'POST'});
-        }
-        
+        const fd = new FormData(); if(type==='login'){ fd.append('username', e); fd.append('password', p); }
+        const res = await fetch(type==='reg'?`/api/auth/register?email=${e}&password=${p}`:'/api/auth/login', {method:'POST', body:fd});
         if(res.ok) {
             const d = await res.json();
-            if(t === 'login'){
+            if(type==='login'){
                 localStorage.setItem('token', d.access_token);
                 localStorage.setItem('role', d.role);
                 localStorage.setItem('email', d.email);
                 location.reload();
-            } else {
-                alert("Регистрация успешна! Теперь войдите.");
-            }
-        } else {
-            const err = await res.json();
-            alert(err.detail || 'Ошибка');
+            } else alert("Готово! Теперь войдите.");
         }
     }
 
-    async function sendReport() {
-        const token = localStorage.getItem('token');
-        if (!token) return alert('Войдите в систему');
-        
+    async function submitReport() {
         const fd = new FormData();
         fd.append('lat', document.getElementById('lat').value);
         fd.append('lon', document.getElementById('lon').value);
         fd.append('snow_type', document.getElementById('stype').value);
-        
-        const fileInput = document.getElementById('file-in');
-        if (fileInput.files && fileInput.files[0]) {
-            fd.append('file', fileInput.files[0]);
-        }
-        
-        try {
-            const res = await fetch('/api/reports', { 
-                method: 'POST',
-                headers: {'Authorization': 'Bearer ' + token}, 
-                body: fd 
-            });
-            
-            if (res.ok) {
-                alert('Метка создана!');
-                location.reload();
-            } else {
-                const err = await res.json();
-                alert('Ошибка: ' + (err.detail || 'Неизвестная ошибка'));
-            }
-        } catch (e) {
-            alert('Ошибка соединения: ' + e.message);
-        }
+        const f = document.getElementById('file-in').files[0];
+        if(f) fd.append('file', f);
+        await fetch('/api/reports', {
+            method:'POST', 
+            headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`},
+            body:fd
+        });
+        location.reload();
     }
 
-    async function loadReports() {
-        try {
-            const res = await fetch('/api/reports');
-            const data = await res.json();
-            const role = localStorage.getItem('role');
+    async function drawMarkers() {
+        const res = await fetch('/api/reports');
+        const list = await res.json();
+        const myRole = localStorage.getItem('role');
 
-            data.forEach(r => {
-                const icon = L.icon({
-                    iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${r.status === 'pending' ? 'red' : 'blue'}.png`,
-                    iconSize: [25, 41], 
-                    iconAnchor: [12, 41]
-                });
-                const m = L.marker([r.lat, r.lon], {icon}).addTo(map);
-                
-                let h = `<div style="width:220px">
-                    <b>${r.snow_type}</b><br>
-                    <div style="display:flex; gap:5px; margin-top:8px">
-                        <div style="flex:1">
-                            <small>До:</small>
-                            ${r.photo_url ? `<img src="${r.photo_url}" class="photo-card" onclick="window.open('${r.photo_url}')" onerror="this.style.display='none'">` : '<div class="photo-card"></div>'}
-                            <span class="time-label">${fmt(r.created_at)}</span>
-                        </div>
-                        <div style="flex:1">
-                            <small>После:</small>
-                            ${r.done_photo_url ? `<img src="${r.done_photo_url}" class="photo-card" onclick="window.open('${r.done_photo_url}')" onerror="this.style.display='none'">` : '<div class="photo-card"></div>'}
-                            <span class="time-label">${r.status === 'cleaned' ? fmt(r.updated_at) : '—'}</span>
-                        </div>
+        list.forEach(r => {
+            const color = r.status === 'pending' ? 'red' : 'blue';
+            const icon = L.icon({
+                iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+                iconSize: [25, 41], iconAnchor: [12, 41]
+            });
+            const m = L.marker([r.lat, r.lon], {icon}).addTo(map);
+
+            let popup = `<div style="width:200px">
+                <b style="font-size:14px">${r.snow_type}</b><br>
+                <div style="display:flex; gap:8px; margin:10px 0">
+                    <div style="flex:1">
+                        <small>Создано:</small>
+                        ${r.photo_url ? `<img src="${r.photo_url}" class="photo-box" onclick="window.open('${r.photo_url}')">` : '<div class="photo-box"></div>'}
+                        <span class="timestamp">${formatDate(r.created_at)}</span>
                     </div>
-                    <div style="margin-top:10px; display:flex; gap:5px; flex-wrap:wrap">`;
-                
-                if(r.status === 'pending' && (role === 'cleaner' || role === 'admin')) {
-                    h += `<input type="file" id="f-${r.id}" accept="image/*" style="width:100%; font-size:10px; margin-top:5px">
-                          <button class="btn btn-blue" style="flex:1; padding:5px; font-size:11px" onclick="setDone(${r.id})">Готово</button>`;
-                }
-                
-                if(role === 'admin') {
-                    h += `<button class="btn btn-red" style="flex:1; padding:5px; font-size:11px" onclick="deleteReport(${r.id})">Удалить</button>`;
-                }
-                
-                h += `</div></div>`;
-                m.bindPopup(h);
-            });
-        } catch (e) {
-            console.error('Ошибка загрузки отчетов:', e);
-        }
-    }
-
-    async function setDone(id) {
-        const token = localStorage.getItem('token');
-        const fd = new FormData();
-        const fileInput = document.getElementById(`f-${id}`);
-        
-        if (fileInput && fileInput.files && fileInput.files[0]) {
-            fd.append('file', fileInput.files[0]);
-        }
-        
-        try {
-            await fetch(`/api/reports/${id}/done`, {
-                method: 'POST', 
-                headers: {'Authorization': 'Bearer ' + token},
-                body: fd
-            });
-            location.reload();
-        } catch (e) {
-            alert('Ошибка: ' + e.message);
-        }
-    }
-
-    async function deleteReport(id) {
-        if (!confirm('Удалить метку навсегда?')) return;
-        
-        const token = localStorage.getItem('token');
-        try {
-            const res = await fetch(`/api/reports/${id}`, {
-                method: 'DELETE',
-                headers: {'Authorization': 'Bearer ' + token}
-            });
-            
-            if (res.ok) {
-                alert('Метка удалена');
-                location.reload();
-            } else {
-                alert('Ошибка удаления');
-            }
-        } catch (e) {
-            alert('Ошибка: ' + e.message);
-        }
-    }
-
-    async function loadAdmin() {
-        toggle('admin-p');
-        const token = localStorage.getItem('token');
-        
-        try {
-            const res = await fetch('/api/admin/users', {
-                headers: {'Authorization': 'Bearer ' + token}
-            });
-            
-            if (res.ok) {
-                const users = await res.json();
-                document.getElementById('u-list').innerHTML = users.map(u => `
-                    <div class="user-row">
-                        <b>${u.email}</b><br>
-                        <select class="role-sel" onchange="updateRole(${u.id}, this.value)">
-                            <option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option>
-                            <option value="cleaner" ${u.role === 'cleaner' ? 'selected' : ''}>Cleaner</option>
-                            <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
-                        </select>
+                    <div style="flex:1">
+                        <small>Убрано:</small>
+                        ${r.done_photo_url ? `<img src="${r.done_photo_url}" class="photo-box" onclick="window.open('${r.done_photo_url}')">` : '<div class="photo-box"></div>'}
+                        <span class="timestamp">${r.status==='cleaned' ? formatDate(r.updated_at) : 'в ожидании'}</span>
                     </div>
-                `).join('');
+                </div>`;
+
+            if(r.status === 'pending' && (myRole === 'cleaner' || myRole === 'admin')) {
+                popup += `<input type="file" id="f-${r.id}" style="font-size:10px; margin-bottom:5px">
+                          <button class="btn btn-blue" style="padding:5px; font-size:12px" onclick="markReady(${r.id})">Отметить выполненным</button>`;
             }
-        } catch (e) {
-            console.error('Ошибка загрузки пользователей:', e);
-        }
+            
+            // ВОТ ТУТ ВЕРНУЛ УДАЛЕНИЕ
+            if(myRole === 'admin') {
+                popup += `<button class="del-btn" onclick="deletePoint(${r.id})">✕ Удалить метку</button>`;
+            }
+
+            m.bindPopup(popup + `</div>`);
+        });
     }
 
-    async function updateRole(uid, role) {
-        const token = localStorage.getItem('token');
-        try {
-            await fetch(`/api/admin/users/${uid}/role?new_role=${role}`, {
-                method: 'PATCH',
-                headers: {'Authorization': 'Bearer ' + token}
-            });
-            alert('Роль обновлена');
-        } catch (e) {
-            alert('Ошибка: ' + e.message);
-        }
+    async function markReady(id) {
+        const fd = new FormData(); const f = document.getElementById(`f-${id}`).files[0];
+        if(f) fd.append('file', f);
+        await fetch(`/api/reports/${id}/done`, {method:'POST', body:fd});
+        location.reload();
     }
 
-    if(localStorage.getItem('token')) {
+    async function deletePoint(id) {
+        if(!confirm('Точно удалить метку?')) return;
+        await fetch(`/api/reports/${id}`, {
+            method: 'DELETE',
+            headers: {'Authorization': `Bearer ${localStorage.getItem('token')}`}
+        });
+        location.reload();
+    }
+
+    async function openAdmin() {
+        toggleSide('admin-p');
+        const res = await fetch('/api/admin/users', {headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`}});
+        const users = await res.json();
+        document.getElementById('user-list').innerHTML = users.map(u => `
+            <div class="admin-unit">
+                <div style="font-size:13px; font-weight:600">${u.email}</div>
+                <select style="margin-top:5px; font-size:12px" onchange="changeRole(${u.id}, this.value)">
+                    <option value="user" ${u.role==='user'?'selected':''}>Пользователь</option>
+                    <option value="cleaner" ${u.role==='cleaner'?'selected':''}>Уборщик</option>
+                    <option value="admin" ${u.role==='admin'?'selected':''}>Админ</option>
+                </select>
+            </div>
+        `).join('');
+    }
+
+    async function changeRole(uid, role) {
+        await fetch(`/api/admin/users/${uid}/role?new_role=${role}`, {
+            method:'PATCH',
+            headers:{'Authorization': `Bearer ${localStorage.getItem('token')}`}
+        });
+    }
+
+    // Инициализация
+    const t = localStorage.getItem('token');
+    if(t) {
         document.getElementById('u-mail').innerText = localStorage.getItem('email');
-        document.getElementById('login-form').style.display = 'none';
+        document.getElementById('login-zone').style.display = 'none';
         document.getElementById('logout-btn').style.display = 'block';
         if(localStorage.getItem('role') === 'admin') document.getElementById('adm-btn').style.display = 'block';
     }
-    
-    loadReports();
+    drawMarkers();
 </script>
 </body>
 </html>
