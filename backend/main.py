@@ -40,8 +40,11 @@ class SnowReport(Base):
 Base.metadata.create_all(bind=engine)
 
 # --- APP ---
-# docs_url="/docs" — теперь Swagger будет доступен по /api/docs
-app = FastAPI(docs_url="/docs", openapi_url="/openapi.json")
+app = FastAPI(
+    docs_url="/docs", 
+    openapi_url="/openapi.json",
+    root_path="/api"  
+)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
