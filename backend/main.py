@@ -35,7 +35,7 @@ class SnowReport(Base):
     lat = Column(Float)
     lon = Column(Float)
     snow_type = Column(String)
-    status = Column(String, default="pending") # "pending" или "cleaned"
+    status = Column(String, default="pending")
     photo_url = Column(String, nullable=True)
 
 class ReportCreate(BaseModel):
@@ -52,7 +52,6 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(docs_url="/docs", openapi_url="/openapi.json", root_path="/api")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Раздаем папку с фото как статику
 UPLOAD_DIR = "uploads"
 if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
@@ -69,23 +68,21 @@ def get_reports(db: Session = Depends(get_db)):
 
 @app.post("/reports")
 def create_report(report: ReportCreate, db: Session = Depends(get_db)):
+    # Точки теперь создаются без проверки токена - доступно всем
     new_report = SnowReport(lat=report.lat, lon=report.lon, snow_type=report.snow_type)
     db.add(new_report)
     db.commit()
     db.refresh(new_report)
     return new_report
 
-# Эндпоинт для уборщика: загрузка фото и смена статуса
 @app.post("/cleaner/reports/{report_id}/done")
 async def mark_as_done(report_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
     if not report: raise HTTPException(status_code=404)
     
-    # Сохраняем файл
     file_ext = file.filename.split(".")[-1]
     filename = f"{uuid.uuid4()}.{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, filename)
-    
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
     
