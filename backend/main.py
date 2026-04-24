@@ -1,6 +1,6 @@
 import os, hashlib, uuid
 from enum import Enum
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -34,34 +34,18 @@ class SnowReport(Base):
     lat = Column(Float)
     lon = Column(Float)
     snow_type = Column(String)
+    # Статусы: pending (красный), cleaned (синий), verified (зеленый)
     status = Column(String, default="pending")
     photo_url = Column(String, nullable=True)
 
-class ReportCreate(BaseModel):
-    lat: float
-    lon: float
-    snow_type: str
-
-class RoleUpdate(BaseModel):
-    role: UserRole
-
-# Создаем таблицы
 Base.metadata.create_all(bind=engine)
 
 # --- APP ---
 app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 UPLOAD_DIR = "uploads"
-if not os.path.exists(UPLOAD_DIR): 
-    os.makedirs(UPLOAD_DIR)
-
+if not os.path.exists(UPLOAD_DIR): os.makedirs(UPLOAD_DIR)
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
@@ -70,31 +54,51 @@ def get_db():
     finally: db.close()
 
 # --- ROUTES ---
+
 @app.get("/reports")
 def get_reports(db: Session = Depends(get_db)):
     return db.query(SnowReport).all()
 
+# Создание метки (теперь принимает Form данные для фото)
 @app.post("/reports")
-def create_report(report: ReportCreate, db: Session = Depends(get_db)):
-    new_report = SnowReport(lat=report.lat, lon=report.lon, snow_type=report.snow_type)
+async def create_report(
+    lat: float = Form(...),
+    lon: float = Form(...),
+    snow_type: str = Form(...),
+    file: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    photo_path = None
+    if file:
+        file_ext = file.filename.split(".")[-1]
+        filename = f"{uuid.uuid4()}.{file_ext}"
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        with open(file_path, "wb") as buffer:
+            buffer.write(await file.read())
+        photo_path = f"/api/static_uploads/{filename}"
+
+    new_report = SnowReport(lat=lat, lon=lon, snow_type=snow_type, photo_url=photo_path)
     db.add(new_report)
     db.commit()
-    db.refresh(new_report)
-    return new_report
+    return {"status": "ok"}
 
+# Смена статуса на "Убрано" (Синий)
 @app.post("/cleaner/reports/{report_id}/done")
-async def mark_as_done(report_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def mark_as_done(report_id: int, db: Session = Depends(get_db)):
     report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
     if not report: raise HTTPException(status_code=404)
-    file_ext = file.filename.split(".")[-1]
-    filename = f"{uuid.uuid4()}.{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    with open(file_path, "wb") as buffer:
-        buffer.write(await file.read())
     report.status = "cleaned"
-    report.photo_url = f"/api/static_uploads/{filename}"
     db.commit()
     return {"status": "success"}
+
+# Смена статуса на "Проверено" (Зеленый)
+@app.post("/admin/reports/{report_id}/verify")
+def verify_report(report_id: int, db: Session = Depends(get_db)):
+    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
+    if not report: raise HTTPException(status_code=404)
+    report.status = "verified"
+    db.commit()
+    return {"status": "verified"}
 
 @app.delete("/admin/reports/{report_id}")
 def delete_report(report_id: int, db: Session = Depends(get_db)):
@@ -127,9 +131,9 @@ def get_users(db: Session = Depends(get_db)):
     return db.query(User).all()
 
 @app.put("/admin/users/{user_id}/role")
-def update_user_role(user_id: int, role_data: RoleUpdate, db: Session = Depends(get_db)):
+def update_user_role(user_id: int, role_data: dict, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user: raise HTTPException(status_code=404)
-    user.role = role_data.role
+    user.role = role_data['role']
     db.commit()
     return {"status": "success"}
