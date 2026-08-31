@@ -1,4 +1,4 @@
-import os, hashlib, uuid
+import os, hashlib, uuid, logging
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -10,7 +10,10 @@ from pydantic import BaseModel
 from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from jose import jwt, JWTError
+from jose import jwt
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -74,10 +77,11 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
     try:
         p = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = p.get("sub")
-        if email is None:
+        if not email:
             return None
         return db.query(User).filter(User.email == email).first()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Token error: {e}")
         return None
 
 @app.get("/api/reports")
@@ -89,50 +93,66 @@ async def create(
     lat: float = Form(...), 
     lon: float = Form(...), 
     snow_type: str = Form(...), 
-    description: str = Form(None), 
-    file: UploadFile = File(None), 
+    description: Optional[str] = Form(None), 
+    file: Optional[UploadFile] = File(None), 
     db: Session = Depends(get_db), 
     u: Optional[User] = Depends(get_current_user)
 ):
     p_url = None
-    if file and hasattr(file, 'filename') and file.filename:
+    if file:
         try:
-            fname = f"{uuid.uuid4().hex}_{file.filename}"
-            path = os.path.join(UPLOAD_DIR, fname)
-            content = await file.read()
-            if content:
-                with open(path, "wb") as b: 
-                    b.write(content)
-                p_url = f"/static_uploads/{fname}"
+            filename = getattr(file, "filename", None)
+            if filename:
+                content = await file.read()
+                if content and len(content) > 0:
+                    fname = f"{uuid.uuid4().hex}_{filename}"
+                    path = os.path.join(UPLOAD_DIR, fname)
+                    with open(path, "wb") as b: 
+                        b.write(content)
+                    p_url = f"/static_uploads/{fname}"
         except Exception as e:
+            logger.error(f"Error saving upload file: {e}")
             p_url = None
-    
+
     author_email = u.email if u else "Guest"
     
-    rep = SnowReport(
-        lat=lat, 
-        lon=lon, 
-        snow_type=snow_type, 
-        description=description, 
-        photo_url=p_url, 
-        author_email=author_email
-    )
-    db.add(rep)
-    db.commit()
-    return {"ok": True}
+    try:
+        rep = SnowReport(
+            lat=lat, 
+            lon=lon, 
+            snow_type=snow_type, 
+            description=description, 
+            photo_url=p_url, 
+            author_email=author_email
+        )
+        db.add(rep)
+        db.commit()
+        return {"ok": True}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Database insertion error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка базы данных при сохранении отчета")
 
 @app.post("/api/reports/{r_id}/done")
-async def mark_done(r_id: int, file: UploadFile = File(None), db: Session = Depends(get_db)):
+async def mark_done(r_id: int, file: Optional[UploadFile] = File(None), db: Session = Depends(get_db)):
     rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
     if not rep:
         raise HTTPException(status_code=404, detail="Отчет не найден")
-    if file and hasattr(file, 'filename') and file.filename:
-        fname = f"done_{uuid.uuid4().hex}_{file.filename}"
-        path = os.path.join(UPLOAD_DIR, fname)
-        content = await file.read()
-        with open(path, "wb") as b: 
-            b.write(content)
-        rep.done_photo_url = f"/static_uploads/{fname}"
+    
+    if file:
+        try:
+            filename = getattr(file, "filename", None)
+            if filename:
+                content = await file.read()
+                if content and len(content) > 0:
+                    fname = f"done_{uuid.uuid4().hex}_{filename}"
+                    path = os.path.join(UPLOAD_DIR, fname)
+                    with open(path, "wb") as b: 
+                        b.write(content)
+                    rep.done_photo_url = f"/static_uploads/{fname}"
+        except Exception as e:
+            logger.error(f"Error saving done file: {e}")
+
     rep.status = "cleaned"
     rep.updated_at = datetime.utcnow()
     db.commit()

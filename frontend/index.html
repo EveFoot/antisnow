@@ -233,16 +233,21 @@
     async function save() {
         const btn = document.getElementById('save-btn');
         const fileIn = document.getElementById('file-in');
-        btn.disabled = true; btn.innerText = "Сжатие и отправка...";
+        btn.disabled = true; btn.innerText = "Сохранение...";
 
         try {
             const fd = new FormData();
             fd.append('lat', document.getElementById('lat').value);
             fd.append('lon', document.getElementById('lon').value);
             fd.append('snow_type', document.getElementById('stype').value);
-            fd.append('description', document.getElementById('desc').value);
             
-            if(fileIn.files[0]) {
+            const descVal = document.getElementById('desc').value.trim();
+            if(descVal) {
+                fd.append('description', descVal);
+            }
+            
+            if(fileIn.files && fileIn.files[0]) {
+                btn.innerText = "Сжатие и отправка...";
                 const compressed = await compressImg(fileIn.files[0]);
                 fd.append('file', compressed);
             }
@@ -257,10 +262,19 @@
                 body: fd
             });
             
-            if(res.ok) { alert("Успешно!"); location.reload(); }
-            else alert("Ошибка сервера при отправке");
-        } catch(e) { alert("Ошибка сети"); }
-        finally { btn.disabled = false; btn.innerText = "Отправить"; }
+            if(res.ok) { 
+                alert("Успешно!"); 
+                location.reload(); 
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                alert(`Ошибка сервера: ${errData.detail || res.statusText}`);
+            }
+        } catch(e) { 
+            alert("Ошибка сети или передачи данных"); 
+        } finally { 
+            btn.disabled = false; 
+            btn.innerText = "Отправить"; 
+        }
     }
 
     async function load() {
