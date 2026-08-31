@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, DateTime, create_engine
+from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, DateTime, create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from jose import jwt
@@ -58,6 +58,14 @@ class User(Base):
     role = Column(SqlEnum(UserRole), default=UserRole.user)
 
 Base.metadata.create_all(bind=engine)
+
+# Автоматическое добавление недостающих колонок в существующую таблицу
+with engine.connect() as conn:
+    conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS photo_url VARCHAR;"))
+    conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS done_photo_url VARCHAR;"))
+    conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS author_email VARCHAR;"))
+    conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS description VARCHAR;"))
+    conn.commit()
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -118,9 +126,9 @@ async def create(
     
     try:
         rep = SnowReport(
-            lat=lat, 
-            lon=lon, 
-            snow_type=snow_type, 
+            lat=float(lat), 
+            lon=float(lon), 
+            snow_type=str(snow_type), 
             description=description, 
             photo_url=p_url, 
             author_email=author_email
@@ -131,7 +139,7 @@ async def create(
     except Exception as e:
         db.rollback()
         logger.error(f"Database insertion error: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка базы данных при сохранении отчета")
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 @app.post("/api/reports/{r_id}/done")
 async def mark_done(r_id: int, file: Optional[UploadFile] = File(None), db: Session = Depends(get_db)):
