@@ -137,7 +137,7 @@
     const map = L.map('map', {zoomControl: false}).setView([61.6688, 50.8365], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    let allMarkersMap = new Map(); // Хранилище созданных маркеров для фильтрации
+    let allMarkersMap = new Map();
 
     function toggle(id) {
         document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open'));
@@ -155,7 +155,6 @@
         toggle('add-p');
     });
 
-    // Обработка предпросмотра фото
     function handleFileSelect(input) {
         const file = input.files[0];
         if (file) {
@@ -176,7 +175,6 @@
         document.getElementById('preview-box').style.display = 'none';
     }
 
-    // Функция сжатия фото
     function compressImg(file) {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -243,7 +241,6 @@
         finally { btn.disabled = false; btn.innerText = "Отправить"; }
     }
 
-    // Загрузка и отображение меток
     async function load() {
         const res = await fetch('/api/reports');
         const data = await res.json();
@@ -256,6 +253,8 @@
             const marker = createMarker(r, role);
             allMarkersMap.set(r.id, { marker: marker, status: r.status });
         });
+        
+        filterMarkers();
     }
 
     function createMarker(r, role) {
@@ -279,7 +278,6 @@
                 <div class="photo-item">${getImg(r.done_photo_url)}</div>
             </div>`;
         
-        // Переключатель статусов для Админа или Клинера
         if (role === 'admin' || role === 'cleaner') {
             h += `<div style="margin-top:8px; border-top:1px solid #eee; padding-top:6px;">
                 <label style="font-size:11px; font-weight:bold; color:#333;">Изменить статус:</label>
@@ -300,29 +298,35 @@
         return m;
     }
 
-    // Метод динамической смены статуса
     async function changeStatus(id, newStatus) {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            alert("Необходимо авторизоваться");
+            return;
+        }
+
         try {
             const res = await fetch(`/api/reports/${id}/status`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({ status: newStatus })
             });
 
             if (res.ok) {
-                load(); // Перезагружаем метки с новыми цветами
+                load();
+            } else if (res.status === 403) {
+                alert("Недостаточно прав для изменения статуса (нужна роль Admin или Cleaner)");
             } else {
-                alert("Недостаточно прав для изменения статуса");
+                alert("Ошибка при изменении статуса");
             }
         } catch (e) {
             alert("Ошибка сети при смене статуса");
         }
     }
 
-    // Фильтрация меток на карте
     function filterMarkers() {
         const filterVal = document.getElementById('status-filter').value;
         allMarkersMap.forEach((item) => {
@@ -341,7 +345,11 @@
         const fd = new FormData(); 
         const compressed = await compressImg(f);
         fd.append('file', compressed);
-        await fetch(`/api/reports/${id}/done`, {method:'POST', body:fd});
+        await fetch(`/api/reports/${id}/done`, {
+            method:'POST',
+            headers:{'Authorization':`Bearer ${localStorage.getItem('token')}`},
+            body:fd
+        });
         location.reload();
     }
 
