@@ -36,6 +36,11 @@ class UserRole(str, Enum):
 class StatusUpdate(BaseModel):
     status: str
 
+class UserCreateAdmin(BaseModel):
+    email: str
+    password: str
+    role: UserRole = UserRole.user
+
 class SnowReport(Base):
     __tablename__ = "reports"
     id = Column(Integer, primary_key=True, index=True)
@@ -224,6 +229,25 @@ def get_users(db: Session = Depends(get_db), u: Optional[User] = Depends(get_cur
     if not u or u.role != UserRole.admin: 
         raise HTTPException(403)
     return db.query(User).all()
+
+# Создание нового пользователя через Админ-панель
+@app.post("/api/admin/users")
+def create_user_by_admin(data: UserCreateAdmin, db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):
+    if not u or u.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    existing = db.query(User).filter(User.email == data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Пользователь с таким email уже существует")
+    
+    new_user = User(
+        email=data.email,
+        hashed_password=hashlib.sha256(data.password.encode()).hexdigest(),
+        role=data.role
+    )
+    db.add(new_user)
+    db.commit()
+    return {"ok": True}
 
 @app.patch("/api/admin/users/{u_id}/role")
 def change_role(u_id: int, new_role: UserRole, db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):

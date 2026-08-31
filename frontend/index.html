@@ -124,6 +124,20 @@
 
 <div id="adm-p" class="side-panel">
     <h2>Админ-панель</h2>
+    
+    <!-- Секция добавления нового пользователя -->
+    <div style="background: #f8f9fa; padding: 12px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #ddd;">
+        <h3 style="margin-top:0; font-size:15px;">Добавить пользователя</h3>
+        <input type="email" id="new-user-email" placeholder="Email" style="margin: 4px 0;">
+        <input type="password" id="new-user-pass" placeholder="Пароль" style="margin: 4px 0;">
+        <select id="new-user-role" style="margin: 4px 0;">
+            <option value="user">User</option>
+            <option value="cleaner">Cleaner</option>
+            <option value="admin">Admin</option>
+        </select>
+        <button class="btn btn-blue" style="padding: 10px; font-size: 14px; margin-top: 6px;" onclick="createUserByAdmin()">Создать</button>
+    </div>
+
     <div id="u-list"></div>
     <button class="btn btn-outline" onclick="toggle()">Закрыть</button>
 </div>
@@ -396,6 +410,33 @@
                 </select>
             </div>
         `).join('');
+    }
+
+    async function createUserByAdmin() {
+        const email = document.getElementById('new-user-email').value.trim();
+        const password = document.getElementById('new-user-pass').value.trim();
+        const role = document.getElementById('new-user-role').value;
+
+        if (!email || !password) return alert("Введите Email и пароль");
+
+        const res = await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ email, password, role })
+        });
+
+        if (res.ok) {
+            alert("Пользователь успешно создан");
+            document.getElementById('new-user-email').value = '';
+            document.getElementById('new-user-pass').value = '';
+            openAdmin();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert(`Ошибка: ${err.detail || 'Не удалось создать пользователя'}`);
+        }
     }
 
     async function updateRole(uid, role) {
