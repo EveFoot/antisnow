@@ -58,7 +58,6 @@ class SnowReport(Base):
     lon = Column(Float, nullable=False)
     snow_type = Column(String, nullable=False)
     description = Column(String, nullable=True)
-    address = Column(String, nullable=True)  # <--- ПОЛЕ АДРЕСА
     photo_url = Column(String, nullable=True)
     done_photo_url = Column(String, nullable=True)
     status = Column(String, default="pending")  # pending, cleaned, verified
@@ -131,7 +130,6 @@ def register(email: str, password: str, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(status_code=400, detail="Email уже зарегистрирован")
     
-    # Первый пользователь автоматически становится Админом
     is_first = db.query(User).count() == 0
     role = UserRole.admin if is_first else UserRole.user
 
@@ -158,7 +156,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "email": user.email
     }
 
-# --- ЭНДПОИНТЫ ОТЧЕТОВ (СНЕЖНЫХ МЕТОК) ---
+# --- ЭНДПОИНТЫ ОТЧЕТОВ ---
 
 @app.get("/api/reports")
 def get_reports(db: Session = Depends(get_db)):
@@ -170,7 +168,6 @@ def get_reports(db: Session = Depends(get_db)):
             "lon": r.lon,
             "snow_type": r.snow_type,
             "description": r.description,
-            "address": r.address,
             "photo_url": r.photo_url,
             "done_photo_url": r.done_photo_url,
             "status": r.status,
@@ -185,7 +182,6 @@ async def create_report(
     lon: float = Form(...),
     snow_type: str = Form(...),
     description: Optional[str] = Form(None),
-    address: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     u: User = Depends(get_current_user)
@@ -204,7 +200,6 @@ async def create_report(
         lon=lon,
         snow_type=snow_type,
         description=description,
-        address=address,
         photo_url=photo_url,
         user_id=u.id
     )
