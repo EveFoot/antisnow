@@ -72,6 +72,14 @@
             background: #c1271d;
         }
 
+        .btn-admin {
+            background: #5856d6;
+        }
+
+        .btn-admin:hover {
+            background: #3634a3;
+        }
+
         .modal {
             display: none;
             position: fixed;
@@ -92,6 +100,8 @@
             width: 90%;
             max-width: 400px;
             box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            max-height: 90vh;
+            overflow-y: auto;
         }
 
         .form-group {
@@ -147,6 +157,19 @@
             color: #333;
             text-transform: uppercase;
         }
+
+        .badge-admin {
+            background: #5856d6;
+            color: white;
+        }
+
+        .popup-img {
+            width: 100%;
+            max-height: 150px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-top: 8px;
+        }
     </style>
 </head>
 <body>
@@ -156,7 +179,7 @@
             <h2>❄️ AntiSnow</h2>
         </div>
         <div class="user-card" id="userContainer">
-            <!-- Динамически заполняется -->
+            <!-- Заполняется динамически -->
         </div>
     </div>
 
@@ -202,7 +225,7 @@
                 <textarea id="reportDesc" rows="3" placeholder="Укажите подробности..."></textarea>
             </div>
             <div class="form-group">
-                <label>Фотография</label>
+                <label>Фотография (до 20 МБ)</label>
                 <input type="file" id="reportPhoto" accept="image/*">
             </div>
             <div class="modal-actions">
@@ -212,11 +235,25 @@
         </div>
     </div>
 
+    <!-- Модальное окно Админ-панели -->
+    <div class="modal" id="adminModal">
+        <div class="modal-content" style="max-width: 600px;">
+            <h3 style="margin-bottom: 15px;">Панель администратора</h3>
+            <div id="adminReportsList" style="max-height: 400px; overflow-y: auto;">
+                <!-- Список отчетов для управления статусом -->
+            </div>
+            <div class="modal-actions">
+                <button class="btn" style="background: #8e8e93;" onclick="closeModal('adminModal')">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         let map;
         let selectedCoords = null;
         let tempMarker = null;
+        let reportsLayerGroup = L.layerGroup();
 
         document.addEventListener('DOMContentLoaded', () => {
             initMap();
@@ -225,16 +262,20 @@
         });
 
         function initMap() {
+            // Центрируем карту (Сыктывкар)
             map = L.map('map').setView([61.6688, 50.8356], 13);
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '© OpenStreetMap'
             }).addTo(map);
 
+            reportsLayerGroup.addTo(map);
+
             map.on('click', (e) => {
                 const token = localStorage.getItem('token');
                 if (!token) {
                     alert("Авторизуйтесь, чтобы ставить метки");
+                    openModal('authModal');
                     return;
                 }
                 selectedCoords = e.latlng;
@@ -252,11 +293,13 @@
             const addBtn = document.getElementById('addReportBtn');
 
             if (token && email) {
+                const isAdmin = role === 'admin';
                 userContainer.innerHTML = `
                     <div>
                         <div style="font-weight: 600; font-size: 14px;">${email}</div>
-                        <span class="user-badge">${role || 'user'}</span>
+                        <span class="user-badge ${isAdmin ? 'badge-admin' : ''}">${role || 'user'}</span>
                     </div>
+                    ${isAdmin ? `<button class="btn btn-admin" onclick="openAdminPanel()">Админка</button>` : ''}
                     <button class="btn btn-danger" onclick="logout()">Выйти</button>
                 `;
                 addBtn.style.display = 'flex';
@@ -289,7 +332,7 @@
                         alert("Регистрация успешна! Теперь нажмите 'Войти'");
                     } else {
                         const errMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
-                        alert("Ошибка регистрации: " + (errMsg || "Ошибка сервера"));
+                        alert("Ошибка регистрации: " + (errMsg || "Неизвестная ошибка"));
                     }
                 } catch (err) {
                     alert("Ошибка сети при регистрации");
@@ -302,9 +345,7 @@
 
                     const res = await fetch('/api/auth/login', {
                         method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/x-www-form-urlencoded' 
-                        },
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: formData.toString()
                     });
 
@@ -320,7 +361,7 @@
                         location.reload();
                     } else {
                         const errMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
-                        alert("Ошибка входа (400 Bad Request): " + (errMsg || "Неверный логин или пароль"));
+                        alert("Ошибка входа: " + (errMsg || "Неверный логин или пароль"));
                     }
                 } catch (err) {
                     alert("Ошибка сети при входе");
@@ -337,24 +378,28 @@
         async function loadReports() {
             try {
                 const res = await fetch('/api/reports');
+                if (!res.ok) return;
                 const reports = await res.json();
 
+                reportsLayerGroup.clearLayers();
+
                 reports.forEach(r => {
-                    const marker = L.marker([r.lat, r.lon]).addTo(map);
+                    const marker = L.marker([r.lat, r.lon]);
                     let popupContent = `
                         <div style="max-width: 200px;">
-                            <h4>${r.snow_type}</h4>
-                            <p>${r.description || 'Без описания'}</p>
-                            <p><b>Статус:</b> ${r.status}</p>
+                            <h4 style="margin-bottom: 5px;">${r.snow_type}</h4>
+                            <p style="font-size: 13px; color: #555;">${r.description || 'Без описания'}</p>
+                            <p style="margin-top: 5px;"><b>Статус:</b> ${r.status}</p>
                     `;
                     if (r.photo_url) {
-                        popupContent += `<img src="${r.photo_url}" style="width:100%; border-radius: 8px; margin-top:5px;">`;
+                        popupContent += `<img src="${r.photo_url}" class="popup-img">`;
                     }
                     popupContent += `</div>`;
                     marker.bindPopup(popupContent);
+                    reportsLayerGroup.addLayer(marker);
                 });
             } catch (err) {
-                console.error("Ошибка загрузки отчетов:", err);
+                console.error("Ошибка загрузки меток:", err);
             }
         }
 
@@ -374,7 +419,9 @@
             formData.append('lon', selectedCoords.lng);
             formData.append('snow_type', snowType);
             if (desc) formData.append('description', desc);
-            if (photoInput.files[0]) formData.append('file', photoInput.files[0]);
+            if (photoInput.files[0]) {
+                formData.append('file', photoInput.files[0]);
+            }
 
             try {
                 const res = await fetch('/api/reports', {
@@ -387,13 +434,93 @@
                     alert("Отчет успешно создан!");
                     closeModal('reportModal');
                     if (tempMarker) map.removeLayer(tempMarker);
+                    document.getElementById('reportDesc').value = '';
+                    document.getElementById('reportPhoto').value = '';
                     loadReports();
+                } else if (res.status === 413) {
+                    alert("Ошибка: Загружаемый файл слишком большой! Уменьшите размер фото или увеличьте client_max_body_size в Nginx.");
                 } else {
                     const err = await res.json();
-                    alert("Ошибка: " + (err.detail || "Не удалось сохранить"));
+                    alert("Ошибка создания отчета: " + (err.detail || "Не удалось сохранить"));
                 }
             } catch (e) {
                 alert("Ошибка сети при отправке отчета");
+            }
+        }
+
+        async function openAdminPanel() {
+            openModal('adminModal');
+            const listContainer = document.getElementById('adminReportsList');
+            listContainer.innerHTML = 'Загрузка отчетов...';
+
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch('/api/reports', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const reports = await res.json();
+
+                if (!reports || reports.length === 0) {
+                    listContainer.innerHTML = 'Нет активных отчетов.';
+                    return;
+                }
+
+                let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+                reports.forEach(r => {
+                    html += `
+                        <div style="border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
+                            <div><b>ID:</b> ${r.id} | <b>Тип:</b> ${r.snow_type}</div>
+                            <div><b>Описание:</b> ${r.description || '-'}</div>
+                            <div><b>Текущий статус:</b> ${r.status}</div>
+                            <div style="margin-top: 8px; display: flex; gap: 5px;">
+                                <button class="btn" style="padding: 4px 8px; font-size: 12px;" onclick="updateStatus(${r.id}, 'В работе')">В работу</button>
+                                <button class="btn" style="padding: 4px 8px; font-size: 12px; background: #34c759;" onclick="updateStatus(${r.id}, 'Выполнено')">Завершить</button>
+                                <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;" onclick="deleteReport(${r.id})">Удалить</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                listContainer.innerHTML = html;
+            } catch (err) {
+                listContainer.innerHTML = 'Ошибка при загрузке списка отчетов.';
+            }
+        }
+
+        async function updateStatus(reportId, newStatus) {
+            const token = localStorage.getItem('token');
+            try {
+                const res = await fetch(`/api/reports/${reportId}/status?status=${encodeURIComponent(newStatus)}`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    openAdminPanel();
+                    loadReports();
+                } else {
+                    alert("Не удалось обновить статус");
+                }
+            } catch (e) {
+                alert("Ошибка сети");
+            }
+        }
+
+        async function deleteReport(reportId) {
+            if (!confirm("Удалить этот отчет?")) return;
+            const token = localStorage.getItem('token');
+            try {
+                const res = await fetch(`/api/reports/${reportId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    openAdminPanel();
+                    loadReports();
+                } else {
+                    alert("Не удалось удалить отчет");
+                }
+            } catch (e) {
+                alert("Ошибка сети");
             }
         }
 

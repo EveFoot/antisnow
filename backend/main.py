@@ -1,98 +1,38 @@
 import os
-import uuid
-from datetime import datetime
-from enum import Enum
+import shutil
 from typing import List, Optional
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
-
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Enum as SQLEnum
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
-
+from sqlalchemy.orm import sessionmaker, Session
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
 # --- НАСТРОЙКИ ---
-# Приоритет отдается PostgreSQL из docker-compose, фолбэк — SQLite
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/antisnow")
-SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-change-me")
+SECRET_KEY = "antisnow_secret_key_super_secure"
 ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-# Создание папки для загрузки фото
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@db:5432/antisnow")
 
-# --- БАЗА ДАННЫХ ---
-engine = create_engine(
-    DATABASE_URL, 
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
-)
+# Инициализация БД
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- МОДЕЛИ ДАННЫХ ---
-class UserRole(str, Enum):
-    user = "user"
-    cleaner = "cleaner"
-    admin = "admin"
-
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    role = Column(SQLEnum(UserRole), default=UserRole.user, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    reports = relationship("SnowReport", back_populates="author")
-
-class SnowReport(Base):
-    __tablename__ = "snow_reports"
-
-    id = Column(Integer, primary_key=True, index=True)
-    lat = Column(Float, nullable=False)
-    lon = Column(Float, nullable=False)
-    snow_type = Column(String, nullable=False)
-    description = Column(String, nullable=True)
-    photo_url = Column(String, nullable=True)
-    done_photo_url = Column(String, nullable=True)
-    status = Column(String, default="pending")  # pending, cleaned, verified
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    user_id = Column(Integer, ForeignKey("users.id"))
-    author = relationship("User", back_populates="reports")
-
-# Схема Pydantic для приема JSON при регистрации
-class RegisterSchema(BaseModel):
-    email: str
-    password: str
-
-Base.metadata.create_all(bind=engine)
-
-# --- АВТОРИЗАЦИЯ И ХЕШИРОВАНИЕ ---
+# Настройка шифрования паролей
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-# --- FASTAPI APP ---
 app = FastAPI(title="AntiSnow API")
 
+# Разрешаем CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -101,8 +41,67 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Создаем папку uploads для хранения загруженных фотографий
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+
+# --- МОДЕЛИ БАЗЫ ДАННЫХ ---
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    role = Column(String, default="user")  # 'user' или 'admin'
+
+
+class SnowReport(Base):
+    __tablename__ = "reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    lat = Column(Float, nullable=False)
+    lon = Column(Float, nullable=False)
+    snow_type = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True)
+    status = Column(String, default="Новая")  # 'Новая', 'В работе', 'Выполнено'
+    created_at = Column(DateTime, default=datetime.utcnow)
+    user_id = Column(Integer, nullable=True)
+
+
+Base.metadata.create_all(bind=engine)
+
+
+# --- PYDANTIC СХЕМЫ ---
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    role: str
+    email: str
+
+
+class ReportResponse(BaseModel):
+    id: int
+    lat: float
+    lon: float
+    snow_type: str
+    description: Optional[str]
+    photo_url: Optional[str]
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 def get_db():
     db = SessionLocal()
     try:
@@ -110,10 +109,29 @@ def get_db():
     finally:
         db.close()
 
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    pwd_bytes = plain_password.encode('utf-8')[:72]
+    return pwd_context.verify(pwd_bytes.decode('utf-8', errors='ignore'), hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    # Ограничение 72 байта исключает падение модуля bcrypt
+    pwd_bytes = password.encode('utf-8')[:72]
+    return pwd_context.hash(pwd_bytes.decode('utf-8', errors='ignore'))
+
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Неверный токен авторизации",
+        detail="Не удалось валидировать токен авторизации",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -129,16 +147,17 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
-# --- ЭНДПОИНТЫ АВТОРИЗАЦИИ ---
 
+# --- ЭНДПОИНТЫ АВТОРИЗАЦИИ ---
 @app.post("/api/auth/register")
-def register(data: RegisterSchema, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == data.email).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email уже зарегистрирован")
-    
-    is_first = db.query(User).count() == 0
-    role = UserRole.admin if is_first else UserRole.user
+def register(data: UserRegister, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == data.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Пользователь с таким Email уже зарегистрирован")
+
+    # Автоматически делаем первому пользователю роль admin
+    is_first_user = db.query(User).count() == 0
+    role = "admin" if is_first_user else "user"
 
     new_user = User(
         email=data.email,
@@ -147,158 +166,96 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
     )
     db.add(new_user)
     db.commit()
-    return {"ok": True, "message": "Пользователь успешно зарегистрирован"}
+    db.refresh(new_user)
+    return {"message": "Успешная регистрация", "role": new_user.role}
 
-@app.post("/api/auth/login")
+
+@app.post("/api/auth/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="Неверный email или пароль")
-    
-    token = create_access_token(data={"sub": user.email})
+        raise HTTPException(status_code=400, detail="Неверный Email или пароль")
+
+    access_token = create_access_token(data={"sub": user.email, "role": user.role})
     return {
-        "access_token": token, 
-        "token_type": "bearer", 
-        "role": user.role.value, 
+        "access_token": access_token,
+        "token_type": "bearer",
+        "role": user.role,
         "email": user.email
     }
 
-# --- ЭНДПОИНТЫ ОТЧЕТОВ ---
 
-@app.get("/api/reports")
+# --- ЭНДПОИНТЫ МЕТОК И ОТЧЕТОВ ---
+@app.get("/api/reports", response_model=List[ReportResponse])
 def get_reports(db: Session = Depends(get_db)):
-    reports = db.query(SnowReport).all()
-    return [
-        {
-            "id": r.id,
-            "lat": r.lat,
-            "lon": r.lon,
-            "snow_type": r.snow_type,
-            "description": r.description,
-            "photo_url": r.photo_url,
-            "done_photo_url": r.done_photo_url,
-            "status": r.status,
-            "created_at": r.created_at.isoformat() if r.created_at else None
-        }
-        for r in reports
-    ]
+    return db.query(SnowReport).order_by(SnowReport.created_at.desc()).all()
 
-@app.post("/api/reports")
-async def create_report(
+
+@app.post("/api/reports", response_model=ReportResponse)
+def create_report(
     lat: float = Form(...),
     lon: float = Form(...),
     snow_type: str = Form(...),
     description: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db),
-    u: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     photo_url = None
     if file:
-        ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-        fname = f"{uuid.uuid4().hex}.{ext}"
-        fpath = os.path.join(UPLOAD_DIR, fname)
-        with open(fpath, "wb") as f:
-            f.write(await file.read())
-        photo_url = f"/uploads/{fname}"
+        file_filename = f"{datetime.utcnow().timestamp()}_{file.filename}"
+        file_path = os.path.join(UPLOAD_DIR, file_filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        photo_url = f"/uploads/{file_filename}"
 
-    rep = SnowReport(
+    report = SnowReport(
         lat=lat,
         lon=lon,
         snow_type=snow_type,
         description=description,
         photo_url=photo_url,
-        user_id=u.id
+        user_id=current_user.id
     )
-    db.add(rep)
+    db.add(report)
     db.commit()
-    return {"ok": True}
+    db.refresh(report)
+    return report
 
-@app.patch("/api/reports/{r_id}/status")
+
+# --- АДМИН ЭНДПОИНТЫ ---
+@app.patch("/api/reports/{report_id}/status")
 def update_report_status(
-    r_id: int, 
-    status: str, 
-    db: Session = Depends(get_db), 
-    u: User = Depends(get_current_user)
+    report_id: int,
+    status: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    if not u or u.role not in [UserRole.admin, UserRole.cleaner]:
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
-    
-    rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
-    if not rep:
-        raise HTTPException(status_code=404, detail="Отчет не найден")
-        
-    rep.status = status
-    rep.updated_at = datetime.utcnow()
-    db.commit()
-    return {"ok": True, "status": rep.status}
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Доступ разрешен только администраторам")
 
-@app.post("/api/reports/{r_id}/done")
-async def report_done(
-    r_id: int, 
-    file: UploadFile = File(...), 
-    db: Session = Depends(get_db), 
-    u: User = Depends(get_current_user)
-):
-    if u.role not in [UserRole.cleaner, UserRole.admin]:
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
-        
-    rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
-    if not rep:
+    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
+    if not report:
         raise HTTPException(status_code=404, detail="Отчет не найден")
 
-    ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-    fname = f"done_{uuid.uuid4().hex}.{ext}"
-    fpath = os.path.join(UPLOAD_DIR, fname)
-    with open(fpath, "wb") as f:
-        f.write(await file.read())
-
-    rep.done_photo_url = f"/uploads/{fname}"
-    rep.status = "cleaned"
-    rep.updated_at = datetime.utcnow()
+    report.status = status
     db.commit()
-    return {"ok": True}
+    return {"message": "Статус обновлен"}
 
-@app.delete("/api/reports/{r_id}")
+
+@app.delete("/api/reports/{report_id}")
 def delete_report(
-    r_id: int, 
-    db: Session = Depends(get_db), 
-    u: User = Depends(get_current_user)
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    if u.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Требуются права администратора")
-    
-    rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
-    if not rep:
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Доступ разрешен только администраторам")
+
+    report = db.query(SnowReport).filter(SnowReport.id == report_id).first()
+    if not report:
         raise HTTPException(status_code=404, detail="Отчет не найден")
 
-    db.delete(rep)
+    db.delete(report)
     db.commit()
-    return {"ok": True}
-
-# --- АДМИН-ПАНЕЛЬ ---
-
-@app.get("/api/admin/users")
-def get_users(db: Session = Depends(get_db), u: User = Depends(get_current_user)):
-    if u.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Требуются права администратора")
-    users = db.query(User).all()
-    return [{"id": usr.id, "email": usr.email, "role": usr.role.value} for usr in users]
-
-@app.patch("/api/admin/users/{u_id}/role")
-def update_user_role(
-    u_id: int, 
-    new_role: UserRole, 
-    db: Session = Depends(get_db), 
-    u: User = Depends(get_current_user)
-):
-    if u.role != UserRole.admin:
-        raise HTTPException(status_code=403, detail="Требуются права администратора")
-    
-    target_user = db.query(User).filter(User.id == u_id).first()
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    target_user.role = new_role
-    db.commit()
-    return {"ok": True}
+    return {"message": "Отчет удален"}
