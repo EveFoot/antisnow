@@ -105,8 +105,13 @@
 <div id="add-p" class="side-panel">
     <div style="width: 40px; height: 5px; background: #ddd; margin: 0 auto 20px; border-radius: 10px;"></div>
     <h2>Сообщить о проблеме</h2>
-    <p style="font-size: 14px;">Координаты: <span id="cur-coords" style="color:var(--blue)">...</span></p>
-    <input type="hidden" id="lat"><input type="hidden" id="lon">
+    <p style="font-size: 13px; color:#555; margin: 4px 0;">📍 <span id="cur-address" style="color:var(--blue); font-weight:600;">Определяем адрес...</span></p>
+    <p style="font-size: 11px; color:#888; margin-bottom: 10px;">Координаты: <span id="cur-coords">...</span></p>
+
+    <input type="hidden" id="lat">
+    <input type="hidden" id="lon">
+    <input type="hidden" id="address-val">
+
     <select id="stype">
         <option>Снежный завал</option>
         <option>Гололед</option>
@@ -146,13 +151,45 @@
 
     function logout() { localStorage.clear(); location.reload(); }
 
-    map.on('click', e => {
+    map.on('click', async e => {
         if(!localStorage.getItem('token')) return toggle('auth-p');
-        document.getElementById('lat').value = e.latlng.lat;
-        document.getElementById('lon').value = e.latlng.lng;
-        document.getElementById('cur-coords').innerText = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+        
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+
+        document.getElementById('lat').value = lat;
+        document.getElementById('lon').value = lon;
+        document.getElementById('cur-coords').innerText = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        document.getElementById('cur-address').innerText = "Определяем адрес...";
+        document.getElementById('address-val').value = "";
+        
         clearPhotoPreview();
         toggle('add-p');
+
+        // Обратное геокодирование через Nominatim API OpenStreetMap
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=ru`);
+            const data = await res.json();
+            
+            let addr = "Адрес не определен";
+            if (data && data.address) {
+                const a = data.address;
+                const road = a.road || a.street || a.pedestrian || "";
+                const house = a.house_number ? ` ${a.house_number}` : "";
+                const city = a.city || a.town || a.village || "";
+                
+                if (road) {
+                    addr = `${road}${house}${city ? `, ${city}` : ''}`;
+                } else if (data.display_name) {
+                    addr = data.display_name.split(',').slice(0, 3).join(',');
+                }
+            }
+            
+            document.getElementById('cur-address').innerText = addr;
+            document.getElementById('address-val').value = addr;
+        } catch(err) {
+            document.getElementById('cur-address').innerText = "Не удалось определить адрес";
+        }
     });
 
     function handleFileSelect(input) {
@@ -224,6 +261,7 @@
             fd.append('lon', document.getElementById('lon').value);
             fd.append('snow_type', document.getElementById('stype').value);
             fd.append('description', document.getElementById('desc').value);
+            fd.append('address', document.getElementById('address-val').value);
             
             if(fileIn.files[0]) {
                 const compressed = await compressImg(fileIn.files[0]);
@@ -272,7 +310,8 @@
 
         let h = `<div style="width:250px">
             <b style="font-size:16px">${r.snow_type}</b>
-            <p style="font-size:13px;color:#555">${r.description || ''}</p>
+            <p style="font-size:12px; color:#007AFF; font-weight:bold; margin:4px 0 2px 0;">📍 ${r.address || 'Адрес не указан'}</p>
+            <p style="font-size:13px;color:#555;margin:4px 0;">${r.description || ''}</p>
             <div class="photo-grid">
                 <div class="photo-item">${getImg(r.photo_url)}</div>
                 <div class="photo-item">${getImg(r.done_photo_url)}</div>
@@ -306,19 +345,17 @@
         }
 
         try {
-            const res = await fetch(`/api/reports/${id}/status`, {
+            const res = await fetch(`/api/reports/${id}/status?status=${encodeURIComponent(newStatus)}`, {
                 method: 'PATCH',
                 headers: {
-                    'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ status: newStatus })
+                }
             });
 
             if (res.ok) {
                 load();
             } else if (res.status === 403) {
-                alert("Недостаточно прав для изменения статуса (нужна роль Admin или Cleaner)");
+                alert("Недостаточно прав для изменения статуса");
             } else {
                 alert("Ошибка при изменении статуса");
             }
