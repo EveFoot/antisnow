@@ -1,4 +1,5 @@
 import os, hashlib, uuid, logging
+import urllib.request, json
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -49,6 +50,7 @@ class SnowReport(Base):
     id = Column(Integer, primary_key=True, index=True)
     lat = Column(Float)
     lon = Column(Float)
+    address = Column(String, nullable=True)
     snow_type = Column(String)
     description = Column(String, nullable=True)
     status = Column(String, default="pending")
@@ -69,6 +71,7 @@ Base.metadata.create_all(bind=engine)
 
 # Авто-миграция БД: гарантирует наличие всех колонок в PostgreSQL
 with engine.connect() as conn:
+    conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS address VARCHAR;"))
     conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS photo_url VARCHAR;"))
     conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS done_photo_url VARCHAR;"))
     conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS author_email VARCHAR;"))
@@ -81,6 +84,25 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
+
+def fetch_address_from_osm(lat: float, lon: float) -> str:
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&accept-language=ru"
+        req = urllib.request.Request(url, headers={'User-Agent': 'AntiSnowApp/1.0'})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            addr = data.get('address', {})
+            road = addr.get('road') or addr.get('pedestrian') or addr.get('street') or ''
+            house = addr.get('house_number', '')
+            city = addr.get('city') or addr.get('town') or addr.get('village') or ''
+            
+            parts = [p for p in [road, house] if p]
+            if parts:
+                return f"{', '.join(parts)}" + (f" ({city})" if city else "")
+            return data.get('display_name', 'Адрес определен')
+    except Exception as e:
+        logger.warning(f"Geocoding error: {e}")
+        return "Адрес не определен"
 
 def get_db():
     db = SessionLocal()
@@ -112,6 +134,7 @@ async def create(
     lon: float = Form(...), 
     snow_type: str = Form(...), 
     description: Optional[str] = Form(None), 
+    address: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None), 
     db: Session = Depends(get_db), 
     u: Optional[User] = Depends(get_current_user)
@@ -134,10 +157,14 @@ async def create(
 
     author_email = u.email if u else "Guest"
     
+    if not address or address == "Определение адреса...":
+        address = fetch_address_from_osm(lat, lon)
+    
     try:
         rep = SnowReport(
             lat=float(lat), 
             lon=float(lon), 
+            address=address,
             snow_type=str(snow_type), 
             description=description, 
             photo_url=p_url, 
@@ -233,7 +260,6 @@ def get_users(db: Session = Depends(get_db), u: Optional[User] = Depends(get_cur
         raise HTTPException(403)
     return db.query(User).all()
 
-# Создание нового пользователя через Админ-панель
 @app.post("/api/admin/users")
 def create_user_by_admin(data: UserCreateAdmin, db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):
     if not u or u.role != UserRole.admin:
@@ -263,7 +289,6 @@ def change_role(u_id: int, new_role: UserRole, db: Session = Depends(get_db), u:
     db.commit()
     return {"ok": True}
 
-# Изменение пароля пользователя администратором
 @app.patch("/api/admin/users/{u_id}/password")
 def change_user_password(u_id: int, data: UserPasswordUpdate, db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):
     if not u or u.role != UserRole.admin:
@@ -277,7 +302,6 @@ def change_user_password(u_id: int, data: UserPasswordUpdate, db: Session = Depe
     db.commit()
     return {"ok": True}
 
-# Удаление пользователя администратором
 @app.delete("/api/admin/users/{u_id}")
 def delete_user_by_admin(u_id: int, db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):
     if not u or u.role != UserRole.admin:

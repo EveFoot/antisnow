@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>AntiSnow Mobile Pro</title>
+    <title>Карта уборки снега Сыктывкара</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root { --blue: #007AFF; --red: #FF3B30; --green: #34C759; --bg: #F2F2F7; }
@@ -102,8 +102,10 @@
 <div id="add-p" class="side-panel">
     <div style="width: 40px; height: 5px; background: #ddd; margin: 0 auto 20px; border-radius: 10px;"></div>
     <h2>Сообщить о проблеме</h2>
-    <p style="font-size: 14px;">Координаты: <span id="cur-coords" style="color:var(--blue)">...</span></p>
-    <input type="hidden" id="lat"><input type="hidden" id="lon">
+    <p style="font-size: 14px; margin-bottom: 4px;">📍 <b id="cur-address" style="color:#000">Определение адреса...</b></p>
+    <p style="font-size: 12px; color: #777; margin-top: 0;">Координаты: <span id="cur-coords">...</span></p>
+    
+    <input type="hidden" id="lat"><input type="hidden" id="lon"><input type="hidden" id="address">
     <select id="stype">
         <option>Снежный завал</option>
         <option>Гололед</option>
@@ -125,7 +127,6 @@
 <div id="adm-p" class="side-panel">
     <h2>Админ-панель</h2>
     
-    <!-- Секция добавления нового пользователя -->
     <div style="background: #f8f9fa; padding: 12px; border-radius: 12px; margin-bottom: 15px; border: 1px solid #ddd;">
         <h3 style="margin-top:0; font-size:15px;">Добавить пользователя</h3>
         <input type="email" id="new-user-email" placeholder="Email" style="margin: 4px 0;">
@@ -156,13 +157,37 @@
 
     function logout() { localStorage.clear(); location.reload(); }
 
-    map.on('click', e => {
+    map.on('click', async e => {
         if(!localStorage.getItem('token')) return toggle('auth-p');
-        document.getElementById('lat').value = e.latlng.lat;
-        document.getElementById('lon').value = e.latlng.lng;
-        document.getElementById('cur-coords').innerText = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+        
+        document.getElementById('lat').value = lat;
+        document.getElementById('lon').value = lon;
+        document.getElementById('cur-coords').innerText = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        document.getElementById('cur-address').innerText = "Определение адреса...";
+        document.getElementById('address').value = "";
+        
         clearPhotoPreview();
         toggle('add-p');
+
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&accept-language=ru`);
+            const data = await res.json();
+            const addr = data.address || {};
+            const road = addr.road || addr.pedestrian || addr.street || '';
+            const house = addr.house_number || '';
+            const city = addr.city || addr.town || addr.village || '';
+            
+            let fullAddr = [road, house].filter(Boolean).join(', ');
+            if (!fullAddr) fullAddr = data.display_name || "Адрес не определен";
+            else if (city) fullAddr += ` (${city})`;
+
+            document.getElementById('cur-address').innerText = fullAddr;
+            document.getElementById('address').value = fullAddr;
+        } catch (err) {
+            document.getElementById('cur-address').innerText = "Адрес не определен";
+        }
     });
 
     function handleFileSelect(input) {
@@ -254,6 +279,7 @@
             fd.append('lat', document.getElementById('lat').value);
             fd.append('lon', document.getElementById('lon').value);
             fd.append('snow_type', document.getElementById('stype').value);
+            fd.append('address', document.getElementById('address').value);
             
             const descVal = document.getElementById('desc').value.trim();
             if(descVal) {
@@ -320,7 +346,8 @@
 
         let h = `<div style="width:250px">
             <b style="font-size:16px">${r.snow_type}</b>
-            <p style="font-size:13px;color:#555">${r.description || ''}</p>
+            <p style="font-size:12px; color:#333; margin: 4px 0;">📍 <b>${r.address || 'Адрес не указан'}</b></p>
+            <p style="font-size:13px;color:#555; margin-top:2px;">${r.description || ''}</p>
             <div class="photo-grid">
                 <div class="photo-item">${getImg(r.photo_url)}</div>
                 <div class="photo-item">${getImg(r.done_photo_url)}</div>
