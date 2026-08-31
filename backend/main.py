@@ -2,7 +2,7 @@ import os, hashlib, uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from jose import jwt
+from jose import jwt, JWTError
 
 UPLOAD_DIR = "/app/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -22,6 +22,8 @@ ALGORITHM = "HS256"
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# auto_error=False позволяет не падать с 401/500, если заголовок Authorization отсутствует или невалиден
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 class UserRole(str, Enum):
@@ -58,7 +60,6 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Монтируем статику ДО роутов
 app.mount("/static_uploads", StaticFiles(directory=UPLOAD_DIR), name="static_uploads")
 
 def get_db():
@@ -73,10 +74,12 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
         return None
     try:
         p = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email = p.get("sub")
-        if not email:
+        email: str = p.get("sub")
+        if email is None:
             return None
         return db.query(User).filter(User.email == email).first()
+    except JWTError:
+        return None
     except Exception:
         return None
 
@@ -95,13 +98,18 @@ async def create(
     u: Optional[User] = Depends(get_current_user)
 ):
     p_url = None
-    if file and file.filename:
-        fname = f"{uuid.uuid4().hex}_{file.filename}"
-        path = os.path.join(UPLOAD_DIR, fname)
-        content = await file.read()
-        with open(path, "wb") as b: 
-            b.write(content)
-        p_url = f"/static_uploads/{fname}"
+    if file and hasattr(file, 'filename') and file.filename:
+        try:
+            fname = f"{uuid.uuid4().hex}_{file.filename}"
+            path = os.path.join(UPLOAD_DIR, fname)
+            content = await file.read()
+            if content:
+                with open(path, "wb") as b: 
+                    b.write(content)
+                p_url = f"/static_uploads/{fname}"
+        except Exception as e:
+            print(f"Error saving file: {e}")
+            p_url = None
     
     author_email = u.email if u else "Guest"
     
@@ -122,7 +130,7 @@ async def mark_done(r_id: int, file: UploadFile = File(None), db: Session = Depe
     rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
     if not rep:
         raise HTTPException(status_code=404, detail="Отчет не найден")
-    if file and file.filename:
+    if file and hasattr(file, 'filename') and file.filename:
         fname = f"done_{uuid.uuid4().hex}_{file.filename}"
         path = os.path.join(UPLOAD_DIR, fname)
         content = await file.read()
@@ -134,7 +142,6 @@ async def mark_done(r_id: int, file: UploadFile = File(None), db: Session = Depe
     db.commit()
     return {"ok": True}
 
-# Универсальная смена статуса для поп-апа
 @app.patch("/api/reports/{r_id}/status")
 def update_report_status(r_id: int, data: StatusUpdate, db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):
     if not u or u.role not in [UserRole.admin, UserRole.cleaner]:
