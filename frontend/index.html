@@ -10,7 +10,6 @@
         body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: var(--bg); overflow: hidden; }
         #map { height: 100vh; width: 100vw; z-index: 1; }
 
-        /* Интерфейс */
         .nav-bar { 
             position: absolute; top: 10px; left: 10px; right: 10px;
             z-index: 1000; background: rgba(255,255,255,0.9); backdrop-filter: blur(10px);
@@ -47,7 +46,6 @@
         .photo-item { flex: 1; background: #eee; border-radius: 10px; height: 100px; overflow: hidden; border: 1px solid #ddd; }
         .photo-item img { width: 100%; height: 100%; object-fit: cover; }
         
-        /* Блок предпросмотра фото */
         .preview-container {
             display: none; position: relative; width: 100%; height: 160px;
             margin: 10px 0; border-radius: 12px; overflow: hidden; border: 1px solid #ddd;
@@ -70,7 +68,6 @@
 <div class="nav-bar">
     <b id="user-display">AntiSnow</b>
     
-    <!-- Фильтр меток на карте -->
     <select id="status-filter" class="filter-select" onchange="filterMarkers()">
         <option value="all">🌐 Все метки</option>
         <option value="pending">🔴 В очереди</option>
@@ -116,7 +113,6 @@
     
     <input type="file" id="file-in" accept="image/*" onchange="handleFileSelect(this)">
     
-    <!-- Контейнер для превью выбранного фото -->
     <div id="preview-box" class="preview-container">
         <img id="preview-img" src="" alt="Предпросмотр">
         <button class="preview-remove-btn" onclick="clearPhotoPreview()">✕</button>
@@ -137,7 +133,7 @@
     const map = L.map('map', {zoomControl: false}).setView([61.6688, 50.8365], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    let allMarkersMap = new Map(); // Хранилище созданных маркеров для фильтрации
+    let allMarkersMap = new Map();
 
     function toggle(id) {
         document.querySelectorAll('.side-panel').forEach(p => p.classList.remove('open'));
@@ -155,7 +151,6 @@
         toggle('add-p');
     });
 
-    // Обработка предпросмотра фото
     function handleFileSelect(input) {
         const file = input.files[0];
         if (file) {
@@ -176,7 +171,6 @@
         document.getElementById('preview-box').style.display = 'none';
     }
 
-    // Функция сжатия фото
     function compressImg(file) {
         return new Promise((resolve) => {
             const reader = new FileReader();
@@ -201,17 +195,38 @@
     }
 
     async function auth(t) {
-        const e = document.getElementById('email').value, p = document.getElementById('pass').value;
-        const fd = new FormData(); if(t==='login'){ fd.append('username', e); fd.append('password', p); }
-        const res = await fetch(t==='reg'?`/api/auth/register?email=${e}&password=${p}`:'/api/auth/login', {method:'POST', body:t==='login'?fd:null});
-        if(res.ok) {
-            if(t==='login'){
+        const e = document.getElementById('email').value.trim();
+        const p = document.getElementById('pass').value.trim();
+
+        if(!e || !p) return alert("Заполните email и пароль");
+
+        if (t === 'login') {
+            const body = new URLSearchParams();
+            body.append('username', e);
+            body.append('password', p);
+
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body
+            });
+
+            if (res.ok) {
                 const d = await res.json();
                 localStorage.setItem('token', d.access_token);
                 localStorage.setItem('role', d.role);
                 localStorage.setItem('email', d.email);
                 location.reload();
-            } else alert("Регистрация OK");
+            } else {
+                alert("Неверный логин или пароль");
+            }
+        } else {
+            const res = await fetch(`/api/auth/register?email=${encodeURIComponent(e)}&password=${encodeURIComponent(p)}`, { method: 'POST' });
+            if (res.ok) {
+                alert("Регистрация успешна! Теперь нажмите 'Войти'");
+            } else {
+                alert("Ошибка регистрации");
+            }
         }
     }
 
@@ -232,18 +247,22 @@
                 fd.append('file', compressed);
             }
 
+            const token = localStorage.getItem('token');
+            const headers = {};
+            if(token) headers['Authorization'] = `Bearer ${token}`;
+
             const res = await fetch('/api/reports', {
-                method:'POST',
-                headers:{'Authorization':`Bearer ${localStorage.getItem('token')}`},
-                body:fd
+                method: 'POST',
+                headers: headers,
+                body: fd
             });
+            
             if(res.ok) { alert("Успешно!"); location.reload(); }
-            else alert("Ошибка сервера");
+            else alert("Ошибка сервера при отправке");
         } catch(e) { alert("Ошибка сети"); }
         finally { btn.disabled = false; btn.innerText = "Отправить"; }
     }
 
-    // Загрузка и отображение меток
     async function load() {
         const res = await fetch('/api/reports');
         const data = await res.json();
@@ -279,7 +298,6 @@
                 <div class="photo-item">${getImg(r.done_photo_url)}</div>
             </div>`;
         
-        // Переключатель статусов для Админа или Клинера
         if (role === 'admin' || role === 'cleaner') {
             h += `<div style="margin-top:8px; border-top:1px solid #eee; padding-top:6px;">
                 <label style="font-size:11px; font-weight:bold; color:#333;">Изменить статус:</label>
@@ -300,7 +318,6 @@
         return m;
     }
 
-    // Метод динамической смены статуса
     async function changeStatus(id, newStatus) {
         try {
             const res = await fetch(`/api/reports/${id}/status`, {
@@ -313,7 +330,7 @@
             });
 
             if (res.ok) {
-                load(); // Перезагружаем метки с новыми цветами
+                load();
             } else {
                 alert("Недостаточно прав для изменения статуса");
             }
@@ -322,7 +339,6 @@
         }
     }
 
-    // Фильтрация меток на карте
     function filterMarkers() {
         const filterVal = document.getElementById('status-filter').value;
         allMarkersMap.forEach((item) => {

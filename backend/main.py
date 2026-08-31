@@ -2,7 +2,7 @@ import os, hashlib, uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form, Request
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
@@ -23,7 +23,6 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# auto_error=False позволяет не падать с 401/500, если заголовок Authorization отсутствует или невалиден
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 class UserRole(str, Enum):
@@ -41,7 +40,7 @@ class SnowReport(Base):
     lon = Column(Float)
     snow_type = Column(String)
     description = Column(String, nullable=True)
-    status = Column(String, default="pending") # pending, cleaned, verified
+    status = Column(String, default="pending")
     photo_url = Column(String, nullable=True)
     done_photo_url = Column(String, nullable=True)
     author_email = Column(String, nullable=True)
@@ -78,8 +77,6 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
         if email is None:
             return None
         return db.query(User).filter(User.email == email).first()
-    except JWTError:
-        return None
     except Exception:
         return None
 
@@ -108,7 +105,6 @@ async def create(
                     b.write(content)
                 p_url = f"/static_uploads/{fname}"
         except Exception as e:
-            print(f"Error saving file: {e}")
             p_url = None
     
     author_email = u.email if u else "Guest"
@@ -177,6 +173,9 @@ def delete_rep(r_id: int, db: Session = Depends(get_db), u: Optional[User] = Dep
 
 @app.post("/api/auth/register")
 def reg(email: str = Query(...), password: str = Query(...), db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Пользователь уже существует")
     role = UserRole.admin if db.query(User).count() == 0 else UserRole.user
     db.add(User(email=email, hashed_password=hashlib.sha256(password.encode()).hexdigest(), role=role))
     db.commit()
@@ -186,9 +185,9 @@ def reg(email: str = Query(...), password: str = Query(...), db: Session = Depen
 def login(f: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     u = db.query(User).filter(User.email == f.username).first()
     if not u or u.hashed_password != hashlib.sha256(f.password.encode()).hexdigest(): 
-        raise HTTPException(401)
+        raise HTTPException(status_code=401, detail="Неверные учетные данные")
     t = jwt.encode({"sub": u.email, "role": u.role.value}, SECRET_KEY, ALGORITHM)
-    return {"access_token": t, "role": u.role.value, "email": u.email}
+    return {"access_token": t, "token_type": "bearer", "role": u.role.value, "email": u.email}
 
 @app.get("/api/admin/users")
 def get_users(db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):
