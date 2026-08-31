@@ -156,7 +156,7 @@
             <h2>❄️ AntiSnow</h2>
         </div>
         <div class="user-card" id="userContainer">
-            <!-- Динамически заполняется скриптом -->
+            <!-- Динамически заполняется -->
         </div>
     </div>
 
@@ -225,7 +225,6 @@
         });
 
         function initMap() {
-            // Координаты по умолчанию
             map = L.map('map').setView([61.6688, 50.8356], 13);
 
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -283,27 +282,30 @@
                     const res = await fetch('/api/auth/register', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email, password })
+                        body: JSON.stringify({ email: email, password: password })
                     });
                     const data = await res.json();
                     if (res.ok) {
                         alert("Регистрация успешна! Теперь нажмите 'Войти'");
                     } else {
-                        alert("Ошибка регистрации: " + (data.detail || JSON.stringify(data)));
+                        const errMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+                        alert("Ошибка регистрации: " + (errMsg || "Ошибка сервера"));
                     }
                 } catch (err) {
                     alert("Ошибка сети при регистрации");
                 }
             } else {
                 try {
-                    const params = new URLSearchParams();
-                    params.append('username', email);
-                    params.append('password', password);
+                    const formData = new URLSearchParams();
+                    formData.append('username', email);
+                    formData.append('password', password);
 
                     const res = await fetch('/api/auth/login', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: params
+                        headers: { 
+                            'Content-Type': 'application/x-www-form-urlencoded' 
+                        },
+                        body: formData.toString()
                     });
 
                     const data = await res.json();
@@ -317,7 +319,8 @@
                         alert("Успешный вход!");
                         location.reload();
                     } else {
-                        alert("Ошибка входа: " + (data.detail || "Неверные данные"));
+                        const errMsg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+                        alert("Ошибка входа (400 Bad Request): " + (errMsg || "Неверный логин или пароль"));
                     }
                 } catch (err) {
                     alert("Ошибка сети при входе");
