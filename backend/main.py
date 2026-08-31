@@ -8,6 +8,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, F
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Enum as SQLEnum
 from sqlalchemy.ext.declarative import declarative_base
@@ -17,7 +18,8 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 
 # --- НАСТРОЙКИ ---
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./antisnow.db")
+# Приоритет отдается PostgreSQL из docker-compose, фолбэк — SQLite
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/antisnow")
 SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-change-me")
 ALGORITHM = "HS256"
 
@@ -66,6 +68,11 @@ class SnowReport(Base):
 
     user_id = Column(Integer, ForeignKey("users.id"))
     author = relationship("User", back_populates="reports")
+
+# Схема Pydantic для приема JSON при регистрации
+class RegisterSchema(BaseModel):
+    email: str
+    password: str
 
 Base.metadata.create_all(bind=engine)
 
@@ -125,8 +132,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 # --- ЭНДПОИНТЫ АВТОРИЗАЦИИ ---
 
 @app.post("/api/auth/register")
-def register(email: str, password: str, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == email).first()
+def register(data: RegisterSchema, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == data.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email уже зарегистрирован")
     
@@ -134,8 +141,8 @@ def register(email: str, password: str, db: Session = Depends(get_db)):
     role = UserRole.admin if is_first else UserRole.user
 
     new_user = User(
-        email=email,
-        hashed_password=get_password_hash(password),
+        email=data.email,
+        hashed_password=get_password_hash(data.password),
         role=role
     )
     db.add(new_user)
