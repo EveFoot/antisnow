@@ -59,12 +59,14 @@ class User(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# Автоматическое добавление недостающих колонок в существующую таблицу
+# Авто-миграция БД: гарантирует наличие всех колонок в PostgreSQL
 with engine.connect() as conn:
     conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS photo_url VARCHAR;"))
     conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS done_photo_url VARCHAR;"))
     conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS author_email VARCHAR;"))
     conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS description VARCHAR;"))
+    conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+    conn.execute(text("ALTER TABLE reports ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
     conn.commit()
 
 app = FastAPI()
