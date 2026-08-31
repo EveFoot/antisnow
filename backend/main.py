@@ -41,6 +41,9 @@ class UserCreateAdmin(BaseModel):
     password: str
     role: UserRole = UserRole.user
 
+class UserPasswordUpdate(BaseModel):
+    new_password: str
+
 class SnowReport(Base):
     __tablename__ = "reports"
     id = Column(Integer, primary_key=True, index=True)
@@ -257,5 +260,36 @@ def change_role(u_id: int, new_role: UserRole, db: Session = Depends(get_db), u:
     if not target:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     target.role = new_role
+    db.commit()
+    return {"ok": True}
+
+# Изменение пароля пользователя администратором
+@app.patch("/api/admin/users/{u_id}/password")
+def change_user_password(u_id: int, data: UserPasswordUpdate, db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):
+    if not u or u.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    target = db.query(User).filter(User.id == u_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+        
+    target.hashed_password = hashlib.sha256(data.new_password.encode()).hexdigest()
+    db.commit()
+    return {"ok": True}
+
+# Удаление пользователя администратором
+@app.delete("/api/admin/users/{u_id}")
+def delete_user_by_admin(u_id: int, db: Session = Depends(get_db), u: Optional[User] = Depends(get_current_user)):
+    if not u or u.role != UserRole.admin:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+        
+    target = db.query(User).filter(User.id == u_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+        
+    if target.id == u.id:
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+        
+    db.delete(target)
     db.commit()
     return {"ok": True}
