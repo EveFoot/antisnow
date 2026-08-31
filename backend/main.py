@@ -5,6 +5,7 @@ from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Fo
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from sqlalchemy import Column, Integer, String, Float, Enum as SqlEnum, DateTime, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -26,6 +27,9 @@ class UserRole(str, Enum):
     user = "user"
     cleaner = "cleaner"
     admin = "admin"
+
+class StatusUpdate(BaseModel):
+    status: str
 
 class SnowReport(Base):
     __tablename__ = "reports"
@@ -96,6 +100,21 @@ async def mark_done(r_id:int, file:UploadFile=File(None), db:Session=Depends(get
     rep.status = "cleaned"
     rep.updated_at = datetime.utcnow()
     db.commit(); return {"ok": True}
+
+# Новый роут: универсальная смена статуса для поп-апа
+@app.patch("/api/reports/{r_id}/status")
+def update_report_status(r_id: int, data: StatusUpdate, db: Session = Depends(get_db), u: User = Depends(get_current_user)):
+    if not u or u.role not in [UserRole.admin, UserRole.cleaner]:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    rep = db.query(SnowReport).filter(SnowReport.id == r_id).first()
+    if not rep:
+        raise HTTPException(status_code=404, detail="Отчет не найден")
+        
+    rep.status = data.status
+    rep.updated_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True, "status": rep.status}
 
 @app.post("/api/reports/{r_id}/verify")
 def verify_report(r_id:int, db:Session=Depends(get_db), u:User=Depends(get_current_user)):
